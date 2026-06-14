@@ -190,7 +190,7 @@ def _extract_renameable_identifiers(source: str) -> Dict[str, int]:
     """
     try:
         tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
-    except (tokenize.TokenizeError, IndentationError, SyntaxError):
+    except (tokenize.TokenError, IndentationError, SyntaxError):
         return {}
 
     skip_next = False  # set True after `.`, `import`, `from`, `as`

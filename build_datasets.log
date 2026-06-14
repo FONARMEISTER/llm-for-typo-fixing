@@ -1,0 +1,63 @@
+==========================================
+Building Code Grammar Error Datasets
+==========================================
+
+Building demo dataset...
+
+Processing train split...
+read 8 snippets -> wrote 47 samples (8 clean, 39 corrupted, 0 snippets had no usable identifiers) to data/demo.jsonl
+
+✓ All splits processed successfully!
+✓ Demo dataset completed
+
+Building MBPP dataset...
+
+Processing train split...
+read 374 snippets -> wrote 2174 samples (374 clean, 1800 corrupted, 0 snippets had no usable identifiers) to data/mbpp/train.jsonl
+
+Processing validation split...
+read 90 snippets -> wrote 523 samples (90 clean, 433 corrupted, 0 snippets had no usable identifiers) to data/mbpp/validation.jsonl
+
+Processing test split...
+read 500 snippets -> wrote 2880 samples (500 clean, 2380 corrupted, 1 snippets had no usable identifiers) to data/mbpp/test.jsonl
+
+✓ All splits processed successfully!
+✓ MBPP dataset completed
+
+Building Magicoder dataset...
+
+Processing train split...
+read 23284 snippets -> wrote 138425 samples (23284 clean, 115141 corrupted, 156 snippets had no usable identifiers) to data/magicoder/train.jsonl
+
+Processing validation split...
+read 5000 snippets -> wrote 29705 samples (5000 clean, 24705 corrupted, 40 snippets had no usable identifiers) to data/magicoder/validation.jsonl
+
+Processing test split...
+read 9451 snippets -> wrote 56199 samples (9451 clean, 46748 corrupted, 62 snippets had no usable identifiers) to data/magicoder/test.jsonl
+
+✓ All splits processed successfully!
+✓ Magicoder dataset completed
+
+Building CodeAlpaca dataset...
+
+Processing train split...
+read 1336 snippets -> wrote 7223 samples (1336 clean, 5887 corrupted, 98 snippets had no usable identifiers) to data/codealpaca/train.jsonl
+
+Processing validation split...
+read 300 snippets -> wrote 1623 samples (300 clean, 1323 corrupted, 18 snippets had no usable identifiers) to data/codealpaca/validation.jsonl
+
+Processing test split...
+read 1000 snippets -> wrote 5415 samples (1000 clean, 4415 corrupted, 78 snippets had no usable identifiers) to data/codealpaca/test.jsonl
+
+✓ All splits processed successfully!
+✓ CodeAlpaca dataset completed
+
+==========================================
+All datasets built successfully!
+==========================================
+
+Output directories:
+  - data/demo.jsonl
+  - data/mbpp/
+  - data/magicoder/
+  - data/codealpaca/
