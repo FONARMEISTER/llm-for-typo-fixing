@@ -150,6 +150,7 @@ def main() -> None:
             splits = ["train"]
             out_base = out_dir
             out_dir = os.path.dirname(out_dir) or "."
+            os.makedirs(out_dir, exist_ok=True)
         else:
             # Directory mode - process all splits
             splits = ["train", "validation", "test"]
