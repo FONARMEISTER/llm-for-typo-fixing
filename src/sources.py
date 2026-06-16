@@ -104,7 +104,7 @@ def load_demo(max_samples: Optional[int] = None) -> Iterator[str]:
 def load_mbpp(split: str = "train", max_samples: Optional[int] = None) -> Iterator[str]:
     """Mostly Basic Python Problems — small, clean, well-suited as a starting point."""
 
-    ds = load_dataset("mbpp", split=split)
+    ds = load_dataset("google-research-datasets/mbpp", split=split)
     for i, row in enumerate(ds):
         if max_samples is not None and i >= max_samples:
             break
