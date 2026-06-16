@@ -1,4 +1,7 @@
 #!/bin/bash
+
+set -e
+
 echo "=========================================="
 echo "Building Code Grammar Error Datasets"
 echo "=========================================="
@@ -10,7 +13,7 @@ P_EDIT=0.8
 SEED=42
 
 echo "Building demo dataset..."
-python src/build_dataset.py \
+uv run src/build_dataset.py \
     --source demo \
     --out data/demo.jsonl \
     --variants-per-snippet $VARIANTS_PER_SNIPPET \
@@ -21,7 +24,7 @@ echo "✓ Demo dataset completed"
 echo ""
 
 echo "Building MBPP dataset..."
-python src/build_dataset.py \
+uv run src/build_dataset.py \
     --source mbpp \
     --out data/mbpp/ \
     --variants-per-snippet $VARIANTS_PER_SNIPPET \
@@ -32,7 +35,7 @@ echo "✓ MBPP dataset completed"
 echo ""
 
 echo "Building Magicoder dataset..."
-python src/build_dataset.py \
+uv run src/build_dataset.py \
     --source magicoder \
     --out data/magicoder/ \
     --variants-per-snippet $VARIANTS_PER_SNIPPET \
@@ -43,7 +46,7 @@ echo "✓ Magicoder dataset completed"
 echo ""
 
 echo "Building CodeAlpaca dataset..."
-python src/build_dataset.py \
+uv run src/build_dataset.py \
     --source codealpaca \
     --out data/codealpaca/ \
     --variants-per-snippet $VARIANTS_PER_SNIPPET \
