@@ -60,6 +60,10 @@ eval:
 		--model spellcheck \
 		--dataset data/demo.jsonl
 
+# Start the dataset viewer (opens browser).
+viewer:
+	uv run python -m src.viewer
+
 # Lint Python sources.
 lint:
 	uv run python -m py_compile src/*.py
