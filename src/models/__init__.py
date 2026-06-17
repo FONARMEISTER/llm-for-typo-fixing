@@ -2,16 +2,19 @@
 
 from .base import NameFixer
 from .spellcheck import SpellCheckerFixer
+from .typos import TyposFixer
 
 __all__ = [
     "NameFixer",
     "SpellCheckerFixer",
+    "TyposFixer",
     "MODEL_REGISTRY",
     "make_model",
 ]
 
 MODEL_REGISTRY = {
     "spellcheck": lambda **kw: SpellCheckerFixer(**kw),
+    "typos": lambda **kw: TyposFixer(**kw),
 }
 
 
