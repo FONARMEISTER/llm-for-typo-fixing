@@ -39,9 +39,36 @@ eval:
 		--model spellcheck \
 		--dataset data/demo.jsonl
 
-# Build all datasets.
+# Build all datasets (demo, mbpp, magicoder, codealpaca).
 build-all:
-	bash build_all_datasets.sh
+	uv run python -m src.build_dataset \
+		--source demo \
+		--out data/demo.jsonl \
+		--variants-per-snippet 5 \
+		--max-edits 3 \
+		--p-edit 0.8 \
+		--seed 42
+	uv run python -m src.build_dataset \
+		--source mbpp \
+		--out data/mbpp/ \
+		--variants-per-snippet 5 \
+		--max-edits 3 \
+		--p-edit 0.8 \
+		--seed 42
+	uv run python -m src.build_dataset \
+		--source magicoder \
+		--out data/magicoder/ \
+		--variants-per-snippet 5 \
+		--max-edits 3 \
+		--p-edit 0.8 \
+		--seed 42
+	uv run python -m src.build_dataset \
+		--source codealpaca \
+		--out data/codealpaca/ \
+		--variants-per-snippet 5 \
+		--max-edits 3 \
+		--p-edit 0.8 \
+		--seed 42
 
 # Lint Python sources.
 lint:
