@@ -8,6 +8,8 @@ dependencies = [
   "datasets>=2.14.0",
   "httpx[socks]>=0.28.1",
   "jedi>=0.20.0",
+  "Levenshtein>=0.27.0",
+  "pyspellchecker>=0.8.0",
   "tqdm>=4.65.0",
 ]
 

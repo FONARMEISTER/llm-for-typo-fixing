@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-all lint clean
+.PHONY: test test-verbose test-match build-demo build-mbpp build-all eval lint clean
 
 # Run all tests.
 test:
@@ -15,7 +15,7 @@ test-match:
 
 # Build the demo dataset only (fast).
 build-demo:
-	uv run src/build_dataset.py \
+	uv run python -m src.build_dataset \
 		--source demo \
 		--out data/demo.jsonl \
 		--variants-per-snippet 5 \
@@ -25,13 +25,19 @@ build-demo:
 
 # Build the MBPP dataset.
 build-mbpp:
-	uv run src/build_dataset.py \
+	uv run python -m src.build_dataset \
 		--source mbpp \
 		--out data/mbpp/ \
 		--variants-per-snippet 5 \
 		--max-edits 3 \
 		--p-edit 0.8 \
 		--seed 42
+
+# Run evaluation with the spellchecker baseline on the demo dataset.
+eval:
+	uv run python -m src.eval \
+		--model spellcheck \
+		--dataset data/demo.jsonl
 
 # Build all datasets.
 build-all:

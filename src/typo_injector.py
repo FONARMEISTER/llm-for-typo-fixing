@@ -17,25 +17,18 @@ The public entry point is :func:`inject_typos`.
 from __future__ import annotations
 
 import ast
-import builtins
 import io
 import keyword
 import random
 import re
 import tokenize
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
-import jedi
-
-
-# Identifiers we never rename: language keywords, soft keywords, builtins, and a few
-# names that appear in idiomatic code but are conventionally treated as "fixed".
-_PROTECTED_NAMES = (
-    set(keyword.kwlist)
-    | set(getattr(keyword, "softkwlist", []))
-    | set(dir(builtins))
-    | {"self", "cls", "__init__", "__name__", "__main__", "__file__", "__doc__"}
+from .identifier_utils import (
+    _PROTECTED_NAMES,
+    apply_jedi_rename,
+    extract_renameable_identifiers as _extract_renameable_identifiers,
 )
 
 # Rough QWERTY adjacency map used for "fat-finger" substitutions.
@@ -175,78 +168,16 @@ def _is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not keyword.iskeyword(name)
 
 
-# --------------------------------------------------------------------------- #
-# Identifier extraction and renaming (Jedi-based, scope-aware)
-# --------------------------------------------------------------------------- #
-
-
-def _extract_renameable_identifiers(
-    source: str,
-) -> Dict[str, List[Tuple[int, int]]]:
-    """Return a mapping ``name -> [(line, col), ...]`` of definition positions.
-
-    Uses Jedi for scope-aware extraction. Each entry corresponds to one
-    definition site of the name.  A single name may appear multiple times
-    if it is defined in different scopes (e.g. a local ``result`` inside
-    two different functions).
-
-    We include:
-      * ``statement`` — simple assignments (``x = 1``).
-      * ``function``, ``class`` — definitions.
-      * ``param`` — function parameters.
-
-    We skip:
-      * keywords / builtins / protected names.
-      * names shorter than 3 characters.
-      * dunder names.
-    """
-    try:
-        script = jedi.Script(code=source)
-    except Exception:
-        return {}
-
-    try:
-        names = script.get_names(all_scopes=True, definitions=True, references=False)
-    except Exception:
-        return {}
-
-    result: Dict[str, List[Tuple[int, int]]] = {}
-    for n in names:
-        name = n.name
-        if (
-            name in _PROTECTED_NAMES
-            or len(name) < 3
-            or (name.startswith("__") and name.endswith("__"))
-        ):
-            continue
-        if n.type not in ("statement", "function", "class", "param"):
-            continue
-        # Use the name's own position (n.line, n.column) for rename, not
-        # get_definition_start_position which points to the enclosing statement
-        # (e.g. ``def`` keyword for functions).
-        line = n.line
-        col = n.column
-        if line is None or col is None:
-            continue
-        result.setdefault(name, []).append((line, col))
-
-    return result
+# Re-exported from ``identifier_utils`` for backward compatibility.
+# _extract_renameable_identifiers is imported above.
+# _apply_rename is a thin wrapper over apply_jedi_rename below.
 
 
 def _apply_rename(source: str, line: int, col: int, new_name: str) -> str:
-    """Rename the identifier at ``(line, col)`` to ``new_name`` using Jedi's
-    scope-aware refactoring.
-
-    Returns the updated source, or the original if renaming fails.
-    """
-    try:
-        script = jedi.Script(code=source)
-        refactoring = script.rename(line=line, column=col, new_name=new_name)
-        if refactoring:
-            for _path, change in refactoring.get_changed_files().items():
-                return change.get_new_code()
-    except Exception:
-        pass
+    """Single-file wrapper around ``apply_jedi_rename``."""
+    changed = apply_jedi_rename(source, line, col, new_name)
+    if changed:
+        return next(iter(changed.values()))
     return source
 
 

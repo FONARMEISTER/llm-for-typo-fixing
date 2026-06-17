@@ -17,8 +17,8 @@ from typing import Iterable
 
 from tqdm import tqdm
 
-from sources import iter_source, _KNOWN_SPLIT_SIZES
-from typo_injector import inject_typos
+from .sources import iter_source, _KNOWN_SPLIT_SIZES
+from .typo_injector import inject_typos
 
 
 def _build_kwargs(args: argparse.Namespace, split: str) -> dict:

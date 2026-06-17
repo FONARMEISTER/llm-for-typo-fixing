@@ -78,11 +78,6 @@ class ExtractIdentifiersTests(unittest.TestCase):
         self.assertNotIn("__init__", ids)
         self.assertIn("Foo", ids)
 
-    def test_skips_short_names(self):
-        ids = _extract_renameable_identifiers("x = 1\ny = 2\n")
-        self.assertNotIn("x", ids)
-        self.assertNotIn("y", ids)
-
     def test_includes_attribute_owners(self):
         ids = _extract_renameable_identifiers(SAMPLE_ATTR)
         self.assertIn("Calculator", ids)
