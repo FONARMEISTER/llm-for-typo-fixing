@@ -1,5 +1,8 @@
 .PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval viewer lint clean
 
+# Number of parallel workers for dataset building (auto-detected).
+WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
 # Run all tests.
 test:
 	uv run python -m pytest tests/ -v
@@ -31,7 +34,8 @@ build-mbpp:
 		--variants-per-snippet 5 \
 		--max-edits 3 \
 		--p-edit 0.8 \
-		--seed 42
+		--seed 42 \
+		--workers $(WORKERS)
 
 build-magicoder:
 	uv run python -m src.build_dataset \
@@ -40,7 +44,8 @@ build-magicoder:
 		--variants-per-snippet 5 \
 		--max-edits 3 \
 		--p-edit 0.8 \
-		--seed 42
+		--seed 42 \
+		--workers $(WORKERS)
 
 build-codealpaca:
 	uv run python -m src.build_dataset \
@@ -49,10 +54,11 @@ build-codealpaca:
 		--variants-per-snippet 5 \
 		--max-edits 3 \
 		--p-edit 0.8 \
-		--seed 42
+		--seed 42 \
+		--workers $(WORKERS)
 
 # Build all datasets (demo, mbpp, magicoder, codealpaca).
-build-all: build-demo build-mbpp build-magicoder
+build-all: build-demo build-mbpp build-magicoder build-codealpaca
 
 # Run evaluation with the spellchecker baseline on the demo dataset.
 eval:
