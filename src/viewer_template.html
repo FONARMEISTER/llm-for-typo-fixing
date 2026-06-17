@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dataset Viewer &amp; Eval</title>
+<link rel="stylesheet"
+  href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css">
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #222;
+    --border: #d0d7de;
+    --diff-removed: #ffebe9;
+    --diff-added: #dafbe1;
+    --diff-removed-word: #ff818266;
+    --diff-added-word: #4ac26b66;
+    --shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: var(--bg); color: var(--fg); padding: 20px; }
+  h1 { font-size: 20px; margin-bottom: 16px; }
+  #toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  #toolbar select, #toolbar button, #toolbar input { padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; font: inherit; background: #fff; cursor: pointer; }
+  #toolbar button:hover { background: #f0f0f0; }
+  #toolbar button:disabled { opacity: 0.5; cursor: default; }
+  #stats { font-size: 12px; color: #666; margin-left: 8px; }
+  .separator { width: 1px; height: 24px; background: var(--border); margin: 0 4px; align-self: center; }
+  .sample { background: #fff; border: 1px solid var(--border); border-radius: 8px;
+            margin-bottom: 12px; box-shadow: var(--shadow); overflow: hidden; }
+  .sample-header { padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid var(--border);
+                   font-size: 12px; color: #57606a; display: flex; justify-content: space-between; }
+  .sample-header .edits { font-family: monospace; font-size: 11px; }
+  .panes { display: grid; grid-template-columns: 1fr 1fr; }
+  .pane { overflow: auto; max-height: 500px; }
+  .pane+.pane { border-left: 1px solid var(--border); }
+  .pane-label { font-size: 11px; font-weight: 600; padding: 4px 12px; background: #f6f8fa;
+                border-bottom: 1px solid var(--border); color: #57606a; position: sticky; top: 0; z-index: 1; }
+  .pane-label.fixed { color: #1a7f37; }
+  .pane-label.corrupted { color: #cf222e; }
+  .pane code { display: block; padding: 8px 12px; }
+  .pane pre { margin: 0; }
+  /* Three-pane eval layout */
+  .panes-eval { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .panes-eval .pane { max-height: 500px; overflow: auto; }
+  .panes-eval .pane+.pane { border-left: 1px solid var(--border); }
+  /* Fix-report table */
+  .fix-report { margin: 0; padding: 8px 12px; background: #fff;
+                border-top: 1px solid var(--border); font-size: 12px; }
+  .fix-report table { width: 100%; border-collapse: collapse; }
+  .fix-report th, .fix-report td { text-align: left; padding: 3px 8px;
+                                    border-bottom: 1px solid #eee; }
+  .fix-report th { font-weight: 600; color: #57606a; }
+  .fix-correct { color: #1a7f37; }
+  .fix-wrong   { color: #cf222e; }
+  .fix-missed  { color: #bf8700; }
+  .badge { display: inline-block; padding: 0 5px; border-radius: 3px; font-size: 11px;
+           font-weight: 600; }
+  .badge-ok  { background: #dafbe1; color: #1a7f37; }
+  .badge-bad { background: #ffebe9; color: #cf222e; }
+  .no-samples { text-align: center; padding: 40px; color: #888; }
+  .loading { text-align: center; padding: 40px; }
+  .search { display: flex; gap: 4px; }
+  .search input { width: 180px; }
+  /* Diff highlighting */
+  .hl-diff-removed { background: var(--diff-removed); }
+  .hl-diff-added   { background: var(--diff-added); }
+  /* Progress bar */
+  #progress-bar-wrap { width: 100%; height: 4px; background: #e5e7eb; border-radius: 2px;
+                       margin-top: 4px; overflow: hidden; }
+  #progress-bar { height: 100%; background: #8250df; border-radius: 2px;
+                  width: 0%; transition: width 0.3s; }
+  #progress-text { font-size: 11px; color: #666; margin-top: 2px; }
+  .max-samples-label { font-size: 12px; color: #57606a; display: flex; align-items: center; gap: 4px; }
+  .max-samples-label input[type="checkbox"] { width: auto; cursor: pointer; }
+  .max-samples-label input[type="number"] { width: 60px; text-align: center; }
+</style>
+</head>
+<body>
+<h1>Dataset Viewer &amp; Eval</h1>
+
+<!-- Toolbar: dataset + model + actions -->
+<div id="toolbar">
+  <select id="ds-select"><option value="">-- Dataset --</option></select>
+  <select id="model-select"><option value="">-- Model --</option></select>
+  <button id="btn-load" disabled title="Load dataset for browsing">📖 Browse</button>
+  <span class="separator"></span>
+  <button id="btn-eval" disabled title="Run model evaluation on selected dataset">▶ Run Eval</button>
+  <label class="max-samples-label">
+    <input type="checkbox" id="chk-max-samples" checked>
+    max samples
+    <input type="number" id="input-max-samples" value="100" min="1">
+  </label>
+  <span id="stats"></span>
+</div>
+
+<!-- Dataset browsing: search -->
+<div style="margin-bottom:16px" id="search-toolbar">
+  <span class="search">
+    <input id="search-input" type="text" placeholder="Filter by name..." disabled>
+    <button id="btn-filter" disabled>Filter</button>
+    <button id="btn-clear-filter" disabled>Show all</button>
+  </span>
+</div>
+
+<!-- Eval progress -->
+<div id="eval-progress" style="display:none; margin-bottom:12px; padding:8px 12px; background:#f6f8fa;
+     border:1px solid var(--border); border-radius:8px">
+  <div style="display:flex; justify-content:space-between">
+    <span id="progress-text">Starting...</span>
+    <span id="progress-metrics" style="font-size:11px; color:#57606a"></span>
+  </div>
+  <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+</div>
+
+<div id="samples"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/diff-match-patch@1.0.5/index.js"></script>
+<script>
+/* ---- globals ---- */
+let allSamples = [];
+let currentDsPath = null;
+let evalRunId = null;
+let evalPollTimer = null;
+let evalReceivedCount = 0;    // how many results already rendered.
+let evalAllResults = [];      // accumulated results for incremental metrics.
+
+/* ---- init ---- */
+(async () => {
+  // Load datasets.
+  const resp = await fetch("/api/datasets");
+  const datasets = await resp.json();
+  const dsSel = document.getElementById("ds-select");
+  for (const ds of datasets) {
+    const opt = document.createElement("option");
+    opt.value = ds.path;
+    opt.dataset.kind = ds.kind || "jsonl";
+    opt.textContent = ds.name + " (" + formatSize(ds.size) + ")";
+    dsSel.appendChild(opt);
+  }
+
+  // Load models.
+  const mResp = await fetch("/api/models");
+  const models = await mResp.json();
+  const mSel = document.getElementById("model-select");
+  // Default: first model (spellcheck).
+  let first = true;
+  for (const m of models) {
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = m;
+    if (first) { opt.selected = true; first = false; }
+    mSel.appendChild(opt);
+  }
+
+  // Enable buttons when both dataset and model are selected.
+  dsSel.onchange = mSel.onchange = updateButtons;
+  updateButtons();
+
+  document.getElementById("btn-load").onclick = loadDataset;
+  document.getElementById("btn-eval").onclick = startEval;
+  document.getElementById("btn-filter").onclick = filterSamples;
+  document.getElementById("btn-clear-filter").onclick = clearFilter;
+  document.getElementById("search-input").onkeydown = (e) => {
+    if (e.key === "Enter") filterSamples();
+  };
+
+  // Max samples checkbox toggles the number input.
+  const chk = document.getElementById("chk-max-samples");
+  const inp = document.getElementById("input-max-samples");
+  chk.onchange = () => { inp.disabled = !chk.checked; };
+
+  document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+})();
+
+function updateButtons() {
+  const dsVal = document.getElementById("ds-select").value;
+  const mVal = document.getElementById("model-select").value;
+  document.getElementById("btn-load").disabled = !dsVal;
+  document.getElementById("btn-eval").disabled = !dsVal || !mVal;
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
+  return (bytes/(1024*1024)).toFixed(1) + " MB";
+}
+
+/* ---- load JSONL (browse mode) ---- */
+async function loadDataset() {
+  const sel = document.getElementById("ds-select");
+  if (!sel.value) return;
+  stopPolling();
+  currentDsPath = sel.value;
+
+  const opt = sel.selectedOptions[0];
+  const kind = opt.dataset.kind || "jsonl";
+
+  document.getElementById("stats").textContent = "Loading...";
+  document.getElementById("samples").innerHTML = '<div class="loading">Loading...</div>';
+  document.getElementById("eval-progress").style.display = "none";
+
+  const resp = await fetch(currentDsPath);
+  const text = await resp.text();
+
+  if (kind === "eval") {
+    try {
+      const data = JSON.parse(text);
+      renderEval(data);
+    } catch (e) {
+      document.getElementById("samples").innerHTML =
+        '<div class="no-samples">Failed to parse eval JSON.</div>';
+    }
+    return;
+  }
+
+  const truncated = resp.headers.get("X-Dataset-Truncated") === "true";
+  const lines = text.trim().split("\n");
+  allSamples = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    try { allSamples.push(JSON.parse(line)); }
+    catch (e) { console.warn("bad line:", line.substring(0, 80)); }
+  }
+  renderSamples(allSamples, truncated);
+  document.getElementById("search-input").disabled = false;
+  document.getElementById("btn-filter").disabled = false;
+  document.getElementById("btn-clear-filter").disabled = false;
+}
+
+/* ---- filtering ---- */
+function filterSamples() {
+  const q = document.getElementById("search-input").value.trim().toLowerCase();
+  if (!q) { renderSamples(allSamples); return; }
+  const filtered = allSamples.filter(s => {
+    const searchStr = [s.fixed || "", s.code || "", (s.edits || []).map(e => e.original_name + " " + e.corrupted_name).join(" ")].join(" ").toLowerCase();
+    return searchStr.includes(q);
+  });
+  renderSamples(filtered);
+}
+
+function clearFilter() {
+  document.getElementById("search-input").value = "";
+  renderSamples(allSamples);
+}
+
+/* ---- render (browse mode) ---- */
+function renderSamples(samples, truncated) {
+  truncated = truncated || false;
+  const container = document.getElementById("samples");
+  let msg = samples.length + " / " + allSamples.length + " samples";
+  if (truncated) msg += "  \u26a0 view truncated at 10\u00a0MiB";
+  document.getElementById("stats").textContent = msg;
+  if (samples.length === 0) {
+    container.innerHTML = '<div class="no-samples">No samples to show.</div>';
+    return;
+  }
+  let html = "";
+  for (let i = 0; i < samples.length; i++) {
+    html += renderSample(samples[i], i);
+  }
+  container.innerHTML = html;
+  document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+}
+
+function renderSample(s, idx) {
+  const original = s.fixed || "";
+  const corrupted = s.code || "";
+  const hasErrors = s.has_errors;
+  const edits = s.edits || [];
+  const [diffOrig, diffCorr] = sideBySideWithWordDiff(original, corrupted);
+
+  let editInfo = "";
+  if (edits.length > 0) {
+    editInfo = edits.map(e =>
+      `<span style="color:#cf222e">${esc(e.corrupted_name)}</span> \u2192 <span style="color:#1a7f37">${esc(e.original_name)}</span>`
+    ).join(", ");
+  }
+
+  return `
+  <div class="sample">
+    <div class="sample-header">
+      <span>Sample #${idx + 1} ${hasErrors ? "\u26d4" : "\u2705"}</span>
+      <span class="edits">${editInfo}</span>
+    </div>
+    <div class="panes">
+      <div class="pane">
+        <div class="pane-label fixed">\u2726 Original (ground truth)</div>
+        <pre><code class="language-python">${escapePreservingHighlights(diffOrig)}</code></pre>
+      </div>
+      <div class="pane">
+        <div class="pane-label corrupted">\u2727 Corrupted (with typos)</div>
+        <pre><code class="language-python">${escapePreservingHighlights(diffCorr)}</code></pre>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- eval: start & poll ---- */
+async function startEval() {
+  const dsPath = document.getElementById("ds-select").value;
+  const modelName = document.getElementById("model-select").value;
+  if (!dsPath || !modelName) return;
+
+  stopPolling();
+  evalReceivedCount = 0;
+  evalAllResults = [];
+
+  document.getElementById("samples").innerHTML = "";
+  document.getElementById("eval-progress").style.display = "block";
+  document.getElementById("progress-text").textContent = "Starting eval...";
+  document.getElementById("progress-bar").style.width = "0%";
+  document.getElementById("progress-metrics").textContent = "";
+  document.getElementById("stats").textContent = "";
+
+  // Build request body.
+  const body = { dataset: dsPath, model: modelName };
+  const chk = document.getElementById("chk-max-samples");
+  if (chk.checked) {
+    body.max_samples = parseInt(document.getElementById("input-max-samples").value) || 100;
+    body.random_sample = true;
+  }
+
+  const resp = await fetch("/api/eval/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  evalRunId = data.run_id;
+
+  // Start polling.
+  evalPollTimer = setInterval(pollEvalStatus, 300);
+  // Also do an immediate poll.
+  pollEvalStatus();
+}
+
+function stopPolling() {
+  if (evalPollTimer) {
+    clearInterval(evalPollTimer);
+    evalPollTimer = null;
+  }
+  evalRunId = null;
+}
+
+async function pollEvalStatus() {
+  if (!evalRunId) return;
+  try {
+    const resp = await fetch("/api/eval/status/" + evalRunId + "?since=" + evalReceivedCount);
+    const data = await resp.json();
+
+    // Append new results.
+    const newResults = data.new_results || [];
+    for (const r of newResults) {
+      appendEvalSample(r);
+      evalAllResults.push(r);
+    }
+    evalReceivedCount = data.last_idx_sent || evalReceivedCount;
+
+    // Update progress bar.
+    const total = data.total || data.processed || 1;
+    const pct = Math.round((data.processed / total) * 100);
+    document.getElementById("progress-bar").style.width = pct + "%";
+    document.getElementById("progress-text").textContent =
+      `Evaluating... ${data.processed} / ${total} samples`;
+
+    // Show incremental metrics if available.
+    if (evalAllResults.length > 0) {
+      const em = evalAllResults.filter(r => r.exact_match).length;
+      document.getElementById("progress-metrics").textContent =
+        `EM: ${(em / evalAllResults.length * 100).toFixed(1)}%  (${em}/${evalAllResults.length})`;
+    }
+
+    // Done?
+    if (data.done) {
+      stopPolling();
+      if (data.metrics) {
+        showFinalEvalMetrics(data);
+      }
+      if (data.error) {
+        document.getElementById("progress-text").textContent =
+          "\u26a0 Eval error: " + data.error;
+      }
+    }
+  } catch (e) {
+    console.warn("poll error:", e);
+  }
+}
+
+function showFinalEvalMetrics(data) {
+  const m = data.metrics;
+  const pct = (v) => (v * 100).toFixed(1);
+  document.getElementById("progress-bar").style.width = "100%";
+  document.getElementById("progress-text").textContent =
+    `Done \u2014 ${data.processed} samples.  EM: ${pct(m.exact_match_rate)}%  ` +
+    `F1: ${pct(m.identifier_f1)}%  ` +
+    `Prec: ${pct(m.identifier_precision)}%  Rec: ${pct(m.identifier_recall)}%`;
+  document.getElementById("progress-metrics").textContent =
+    `Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)}`;
+}
+
+function appendEvalSample(s) {
+  const container = document.getElementById("samples");
+  const tmp = document.createElement("div");
+  tmp.innerHTML = renderEvalSample(s);
+  while (tmp.firstChild) {
+    container.appendChild(tmp.firstChild);
+    // Highlight the newly added code blocks.
+    const codes = container.querySelectorAll("code.language-python");
+    const last = codes[codes.length - 1];
+    if (last) hljs.highlightElement(last);
+  }
+}
+
+/* ---- diff helpers ---- */
+const dmp = new diff_match_patch();
+
+function sideBySideWithWordDiff(original, corrupted) {
+  const origLines = original.split("\n");
+  const corrLines = corrupted.split("\n");
+  const maxLines = Math.max(origLines.length, corrLines.length);
+  const leftOut = [];
+  const rightOut = [];
+
+  for (let i = 0; i < maxLines; i++) {
+    const ol = i < origLines.length ? origLines[i] : "";
+    const cl = i < corrLines.length ? corrLines[i] : "";
+    if (ol === cl) {
+      leftOut.push(esc(ol));
+      rightOut.push(esc(cl));
+      continue;
+    }
+    const diffs = dmp.diff_main(ol, cl);
+    dmp.diff_cleanupSemantic(diffs);
+    let leftLine = "";
+    let rightLine = "";
+    for (const [op, text] of diffs) {
+      const escaped = esc(text);
+      if (op === 0) {
+        leftLine += escaped;
+        rightLine += escaped;
+      } else if (op === -1) {
+        leftLine += `<span class="hl-diff-removed">${escaped}</span>`;
+      } else {
+        rightLine += `<span class="hl-diff-added">${escaped}</span>`;
+      }
+    }
+    leftOut.push(leftLine);
+    rightOut.push(rightLine);
+  }
+  return [leftOut.join("\n"), rightOut.join("\n")];
+}
+
+/* ---- utilities ---- */
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function escapePreservingHighlights(html) {
+  const spans = [];
+  const safe = html.replace(/<span[^>]*>.*?<\/span>/gs, (m) => {
+    spans.push(m);
+    return "\u0000SPAN" + (spans.length - 1) + "\u0000";
+  });
+  return safe.replace(/\u0000SPAN(\d+)\u0000/g, (_, i) => spans[+i]);
+}
+
+/* ---- eval result rendering ---- */
+function renderEval(data) {
+  document.getElementById("search-input").disabled = true;
+  document.getElementById("btn-filter").disabled = true;
+  document.getElementById("btn-clear-filter").disabled = true;
+  document.getElementById("eval-progress").style.display = "none";
+
+  const m = data.metrics || {};
+  const samples = data.per_sample || [];
+
+  let statsHtml = `<span class="badge badge-ok">EM: ${(m.exact_match_rate*100).toFixed(1)}%</span>`;
+  statsHtml += ` <span class="badge badge-bad">F1: ${(m.identifier_f1*100).toFixed(1)}%</span>`;
+  statsHtml += ` ${samples.length} samples`;
+  document.getElementById("stats").innerHTML = statsHtml;
+
+  if (samples.length === 0) {
+    document.getElementById("samples").innerHTML = '<div class="no-samples">No eval samples.</div>';
+    return;
+  }
+
+  let html = `<div style="padding:10px;background:#f6f8fa;border-bottom:1px solid var(--border);
+    font-size:13px;display:flex;gap:16px;flex-wrap:wrap">`;
+  html += `<span>Precision: ${(m.identifier_precision*100).toFixed(1)}%</span>`;
+  html += `<span>Recall: ${(m.identifier_recall*100).toFixed(1)}%</span>`;
+  html += `<span>Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)}</span>`;
+  html += `</div>`;
+
+  for (let i = 0; i < samples.length; i++) {
+    html += renderEvalSample(samples[i]);
+  }
+  document.getElementById("samples").innerHTML = html;
+  document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
+}
+
+function renderEvalSample(s) {
+  const corrupted = s.corrupted_code || "";
+  const predicted = s.predicted_code || "";
+  const ground = s.ground_truth_code || "";
+  const modelFixes = s.model_fixes || {};
+  const gtOriginals = s.gt_original_names || [];
+  const gtCorrupteds = s.gt_corrupted_names || [];
+
+  const gtMap = {};
+  for (let j = 0; j < gtCorrupteds.length; j++) {
+    gtMap[gtCorrupteds[j]] = gtOriginals[j];
+  }
+
+  const [diffCorr,  diffPred]  = sideBySideWithWordDiff(corrupted, predicted);
+  const [diffCorr2, diffTruth] = sideBySideWithWordDiff(corrupted, ground);
+
+  let fixRows = "";
+  const allCorrupted = new Set([...Object.keys(modelFixes), ...gtCorrupteds]);
+  for (const cname of allCorrupted) {
+    const modelFix = modelFixes[cname];
+    const gtOriginal = gtMap[cname];
+    let status, statusClass;
+    if (gtOriginal && modelFix) {
+      if (modelFix === gtOriginal) {
+        status = "\u2713 correct";
+        statusClass = "fix-correct";
+      } else {
+        status = `\u2717 wrong \u2192 ${esc(modelFix)}`;
+        statusClass = "fix-wrong";
+      }
+    } else if (gtOriginal && !modelFix) {
+      status = "\u2a2f missed";
+      statusClass = "fix-missed";
+    } else if (!gtOriginal && modelFix) {
+      status = `\u26a0 false fix \u2192 ${esc(modelFix)}`;
+      statusClass = "fix-wrong";
+    } else {
+      continue;
+    }
+    fixRows += `<tr>
+      <td style="font-family:monospace">${esc(cname)}</td>
+      <td style="font-family:monospace;color:#1a7f37">${esc(gtOriginal || "\u2014")}</td>
+      <td style="font-family:monospace">${esc(modelFix || "\u2014")}</td>
+      <td class="${statusClass}">${status}</td>
+    </tr>`;
+  }
+
+  let fixReport = "";
+  if (fixRows) {
+    fixReport = `<div class="fix-report">
+      <table><thead><tr><th>Corrupted</th><th>Ground Truth</th><th>Model Fix</th><th>Status</th></tr></thead>
+      <tbody>${fixRows}</tbody></table>
+    </div>`;
+  }
+
+  const emBadge = s.exact_match
+    ? '<span class="badge badge-ok">EM \u2713</span>'
+    : '<span class="badge badge-bad">EM \u2717</span>';
+
+  return `
+  <div class="sample">
+    <div class="sample-header">
+      <span>Sample #${s.index + 1} ${emBadge}</span>
+      <span style="font-size:11px;color:#888">${Object.keys(modelFixes).length} fixes suggested</span>
+    </div>
+    <div class="panes-eval">
+      <div class="pane">
+        <div class="pane-label corrupted">\u2727 Corrupted (input)</div>
+        <pre><code class="language-python">${escapePreservingHighlights(diffCorr)}</code></pre>
+      </div>
+      <div class="pane">
+        <div class="pane-label" style="color:#8250df">\u2b26 Model Prediction</div>
+        <pre><code class="language-python">${escapePreservingHighlights(diffPred)}</code></pre>
+      </div>
+      <div class="pane">
+        <div class="pane-label fixed">\u2726 Ground Truth</div>
+        <pre><code class="language-python">${escapePreservingHighlights(diffTruth)}</code></pre>
+      </div>
+    </div>
+    ${fixReport}
+  </div>`;
+}
+</script>
+</body>
+</html>

@@ -1,4 +1,5 @@
-"""Dataset viewer — serves an HTML page for manual inspection of JSONL datasets.
+"""Dataset viewer — serves an HTML page for manual inspection of JSONL datasets
+and interactive model evaluation.
 
 Usage::
 
@@ -11,23 +12,123 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
+import threading
+import uuid
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar, Dict, List, Optional
 from urllib.parse import urlparse, unquote
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+TEMPLATE_PATH = Path(__file__).resolve().parent / "viewer_template.html"
+
+# Support both `python -m src.viewer` and `python src/viewer.py`.
+try:
+    from .models import MODEL_REGISTRY, make_model
+    from .harness import _iter_jsonl, _process_sample, compute_metrics
+except ImportError:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from models import MODEL_REGISTRY, make_model  # type: ignore[no-redef]
+    from harness import _iter_jsonl, _process_sample, compute_metrics  # type: ignore[no-redef]
+
+# Load the HTML template at import time.
+_HTML_PAGE = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Background eval state (shared across requests).
+# --------------------------------------------------------------------------- #
+
+# Map run_id -> dict with keys: model_name, dataset, total, results,
+# done, metrics, error, last_idx_sent.
+_running_evals: Dict[str, Dict[str, Any]] = {}
+_eval_lock = threading.Lock()
+
+
+def _eval_runner_thread(
+    run_id: str,
+    dataset_path: str,
+    model_name: str,
+    max_samples: Optional[int],
+    random_sample: bool,
+) -> None:
+    """Run evaluation in a background thread, updating ``_running_evals``.
+
+    When ``random_sample`` is True and ``max_samples`` is set, samples are
+    shuffled before selection rather than taking the first N.
+    """
+    # Disable parso disk cache in this thread (belt and suspenders).
+    try:
+        import jedi.settings
+        jedi.settings.cache_directory = None
+    except Exception:
+        pass
+
+    try:
+        # Load and filter error samples.
+        all_samples = list(_iter_jsonl(dataset_path))
+        error_samples = [
+            (s, i) for i, s in enumerate(all_samples) if s.get("has_errors", False)
+        ]
+
+        total_available = len(error_samples)
+        if max_samples is not None and max_samples < total_available:
+            if random_sample:
+                rng = random.Random(42)
+                rng.shuffle(error_samples)
+            error_samples = error_samples[:max_samples]
+
+        with _eval_lock:
+            _running_evals[run_id]["total"] = len(error_samples)
+
+        model = make_model(model_name)
+        results: List[Any] = []
+
+        for idx, (sample, orig_idx) in enumerate(error_samples):
+            # Use the original sample index so the frontend can match back.
+            result = _process_sample(sample, orig_idx, model)
+            results.append(result)
+
+            with _eval_lock:
+                _running_evals[run_id]["results"] = list(results)
+
+        # Compute final metrics.
+        metrics = compute_metrics(results)
+        with _eval_lock:
+            _running_evals[run_id]["results"] = list(results)
+            _running_evals[run_id]["metrics"] = {
+                "total_samples": metrics.total_samples,
+                "exact_match_rate": metrics.exact_match_rate,
+                "identifier_precision": metrics.identifier_precision,
+                "identifier_recall": metrics.identifier_recall,
+                "identifier_f1": metrics.identifier_f1,
+                "avg_normalized_edit_distance": metrics.avg_normalized_edit_distance,
+            }
+            _running_evals[run_id]["done"] = True
+
+    except Exception as exc:
+        with _eval_lock:
+            _running_evals[run_id]["done"] = True
+            _running_evals[run_id]["error"] = str(exc)
+
+
+# --------------------------------------------------------------------------- #
+# HTTP handler.
+# --------------------------------------------------------------------------- #
 
 
 class _Handler(SimpleHTTPRequestHandler):
     """Serve static files from the project root and API endpoints."""
-    upload_form: ClassVar[str] = ""
 
     # JSONL files larger than this are served truncated at a newline boundary.
     MAX_JSONL_BYTES: ClassVar[int] = 10 * 1024 * 1024  # 10 MiB
+
+    # ---- GET -----------------------------------------------------------------
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -43,6 +144,17 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_json(self._list_datasets())
             return
 
+        # List available models.
+        if path == "/api/models":
+            self._serve_json(self._list_models())
+            return
+
+        # Poll eval progress.
+        if path.startswith("/api/eval/status/"):
+            run_id = path.split("/")[-1]
+            self._serve_eval_status(run_id)
+            return
+
         # Serve actual JSONL content (with size-aware truncation).
         if path.startswith("/data/") and path.endswith(".jsonl"):
             abs_path = str(PROJECT_ROOT / path.lstrip("/"))
@@ -52,12 +164,28 @@ class _Handler(SimpleHTTPRequestHandler):
         # Fall back to static file serving from project root.
         self._serve_file(str(PROJECT_ROOT / path.lstrip("/")))
 
+    # ---- POST ----------------------------------------------------------------
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        path = unquote(parsed.path)
+
+        if path == "/api/eval/start":
+            self._handle_eval_start()
+            return
+
+        self.send_error(404)
+
+    # ---- HTML ----------------------------------------------------------------
+
     def _serve_html(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(_HTML_PAGE.encode("utf-8"))
+
+    # ---- JSON helpers --------------------------------------------------------
 
     def _serve_json(self, obj):
         data = json.dumps(obj, indent=2).encode("utf-8")
@@ -68,6 +196,51 @@ class _Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # ---- Data listings -------------------------------------------------------
+
+    def _list_datasets(self):
+        """Return dataset JSONL files and eval result JSON files."""
+        entries: List[Dict[str, object]] = []
+        if not DATA_DIR.exists():
+            return entries
+        for p in sorted(DATA_DIR.iterdir()):
+            if p.is_dir():
+                for f in sorted(p.glob("*.jsonl")):
+                    entries.append({
+                        "name": f"{p.name}/{f.name}",
+                        "path": f"/data/{p.name}/{f.name}",
+                        "size": f.stat().st_size,
+                        "kind": "jsonl",
+                    })
+            elif p.suffix == ".jsonl":
+                entries.append({
+                    "name": p.name,
+                    "path": f"/data/{p.name}",
+                    "size": p.stat().st_size,
+                    "kind": "jsonl",
+                })
+            elif p.suffix == ".json":
+                # Detect eval result files: JSON with "metrics" key.
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        head = f.read(512)
+                    if '"metrics"' in head and '"per_sample"' in head:
+                        entries.append({
+                            "name": f"📊 {p.name}",
+                            "path": f"/data/{p.name}",
+                            "size": p.stat().st_size,
+                            "kind": "eval",
+                        })
+                except Exception:
+                    pass
+        return entries
+
+    def _list_models(self):
+        """Return available model names from the registry."""
+        return list(MODEL_REGISTRY.keys())
+
+    # ---- JSONL serving -------------------------------------------------------
+
     def _serve_jsonl(self, abs_path: str):
         """Serve a JSONL file, truncating if larger than MAX_JSONL_BYTES."""
         try:
@@ -77,8 +250,6 @@ class _Handler(SimpleHTTPRequestHandler):
                     data = f.read()
                     truncated = False
                 else:
-                    # Read the first MAX_JSONL_BYTES, then seek back to the
-                    # last newline to avoid splitting a JSON line.
                     data = f.read(self.MAX_JSONL_BYTES)
                     nl_idx = data.rfind(b"\n")
                     if nl_idx >= 0:
@@ -95,25 +266,7 @@ class _Handler(SimpleHTTPRequestHandler):
         except (FileNotFoundError, PermissionError, IsADirectoryError):
             self.send_error(404)
 
-    def _list_datasets(self):
-        if not DATA_DIR.exists():
-            return []
-        datasets = []
-        for p in sorted(DATA_DIR.iterdir()):
-            if p.is_dir():
-                for f in sorted(p.glob("*.jsonl")):
-                    datasets.append({
-                        "name": f"{p.name}/{f.name}",
-                        "path": f"/data/{p.name}/{f.name}",
-                        "size": f.stat().st_size,
-                    })
-            elif p.suffix == ".jsonl":
-                datasets.append({
-                    "name": p.name,
-                    "path": f"/data/{p.name}",
-                    "size": p.stat().st_size,
-                })
-        return datasets
+    # ---- Static file fallback ------------------------------------------------
 
     def _serve_file(self, abs_path: str):
         """Serve an arbitrary static file (non-JSONL fallback)."""
@@ -129,284 +282,137 @@ class _Handler(SimpleHTTPRequestHandler):
         except (FileNotFoundError, PermissionError, IsADirectoryError):
             self.send_error(404)
 
+    # ---- Eval start (POST) ---------------------------------------------------
 
-# --------------------------------------------------------------------------- #
-# HTML page (single-file, all JS/CSS inlined or from CDN)
-# --------------------------------------------------------------------------- #
+    def _handle_eval_start(self):
+        """Parse POST body and launch a background eval run."""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            params = json.loads(body)
+        except Exception:
+            self.send_error(400, "Invalid JSON body")
+            return
 
-_HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dataset Viewer</title>
-<link rel="stylesheet"
-  href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css">
-<style>
-  :root {
-    --bg: #fafafa;
-    --fg: #222;
-    --border: #d0d7de;
-    --diff-removed: #ffebe9;
-    --diff-added: #dafbe1;
-    --diff-removed-word: #ff818266;
-    --diff-added-word: #4ac26b66;
-    --shadow: 0 1px 3px rgba(0,0,0,.08);
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-         background: var(--bg); color: var(--fg); padding: 20px; }
-  h1 { font-size: 20px; margin-bottom: 16px; }
-  #toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-  #toolbar select, #toolbar button, #toolbar input { padding: 6px 10px; border: 1px solid var(--border);
-    border-radius: 6px; font: inherit; background: #fff; cursor: pointer; }
-  #toolbar button:hover { background: #f0f0f0; }
-  #stats { font-size: 12px; color: #666; margin-left: 8px; }
-  .sample { background: #fff; border: 1px solid var(--border); border-radius: 8px;
-            margin-bottom: 12px; box-shadow: var(--shadow); overflow: hidden; }
-  .sample-header { padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid var(--border);
-                   font-size: 12px; color: #57606a; display: flex; justify-content: space-between; }
-  .sample-header .edits { font-family: monospace; font-size: 11px; }
-  .panes { display: grid; grid-template-columns: 1fr 1fr; }
-  .pane { overflow: auto; max-height: 500px; }
-  .pane+.pane { border-left: 1px solid var(--border); }
-  .pane-label { font-size: 11px; font-weight: 600; padding: 4px 12px; background: #f6f8fa;
-                border-bottom: 1px solid var(--border); color: #57606a; position: sticky; top: 0; z-index: 1; }
-  .pane-label.fixed { color: #1a7f37; }
-  .pane-label.corrupted { color: #cf222e; }
-  .pane code { display: block; padding: 8px 12px; }
-  .pane pre { margin: 0; }
-  .no-samples { text-align: center; padding: 40px; color: #888; }
-  .loading { text-align: center; padding: 40px; }
-  .search { display: flex; gap: 4px; }
-  .search input { width: 180px; }
-  /* Diff highlighting */
-  .hl-diff-removed { background: var(--diff-removed); }
-  .hl-diff-added   { background: var(--diff-added); }
-</style>
-</head>
-<body>
-<h1>Dataset Viewer</h1>
-<div id="toolbar">
-  <select id="ds-select"><option value="">-- Select dataset --</option></select>
-  <button id="btn-load" disabled>Load</button>
-  <span class="search">
-    <input id="search-input" type="text" placeholder="Filter by name..." disabled>
-    <button id="btn-filter" disabled>Filter</button>
-    <button id="btn-clear-filter" disabled>Show all</button>
-  </span>
-  <span id="stats"></span>
-</div>
-<div id="samples"></div>
+        dataset_path = params.get("dataset", "").strip()
+        model_name = params.get("model", "").strip()
+        max_samples_raw = params.get("max_samples", None)
+        random_sample = params.get("random_sample", True)
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/diff-match-patch@1.0.5/index.js"></script>
-<script>
-/* ---- globals ---- */
-let allSamples = [];
-let currentDsPath = null;
+        # Validate dataset path (must be within DATA_DIR).
+        if not dataset_path:
+            self.send_error(400, "Missing 'dataset' parameter")
+            return
+        abs_dataset = str(PROJECT_ROOT / dataset_path.lstrip("/"))
+        if not os.path.isfile(abs_dataset):
+            self.send_error(404, f"Dataset not found: {dataset_path}")
+            return
 
-/* ---- init ---- */
-(async () => {
-  const resp = await fetch("/api/datasets");
-  const datasets = await resp.json();
-  const sel = document.getElementById("ds-select");
-  for (const ds of datasets) {
-    const opt = document.createElement("option");
-    opt.value = ds.path;
-    opt.textContent = ds.name + " (" + formatSize(ds.size) + ")";
-    sel.appendChild(opt);
-  }
-  sel.onchange = () => {
-    document.getElementById("btn-load").disabled = !sel.value;
-  };
-  document.getElementById("btn-load").onclick = loadDataset;
-  document.getElementById("btn-filter").onclick = filterSamples;
-  document.getElementById("btn-clear-filter").onclick = clearFilter;
-  document.getElementById("search-input").onkeydown = (e) => {
-    if (e.key === "Enter") filterSamples();
-  };
+        # Validate model.
+        if model_name not in MODEL_REGISTRY:
+            self.send_error(400, f"Unknown model: {model_name}")
+            return
 
-  // Re-highlight any <code> in the page.
-  document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
-})();
+        # Parse max_samples.
+        max_samples: Optional[int] = None
+        if max_samples_raw is not None:
+            try:
+                max_samples = int(max_samples_raw)
+                if max_samples < 1:
+                    max_samples = None
+            except (ValueError, TypeError):
+                pass
 
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + " KB";
-  return (bytes/(1024*1024)).toFixed(1) + " MB";
-}
+        # Start the eval run.
+        run_id = uuid.uuid4().hex[:12]
+        with _eval_lock:
+            _running_evals[run_id] = {
+                "model_name": model_name,
+                "dataset": dataset_path,
+                "total": 0,
+                "results": [],
+                "done": False,
+                "metrics": None,
+                "error": None,
+            }
 
-/* ---- load JSONL ---- */
-async function loadDataset() {
-  const sel = document.getElementById("ds-select");
-  if (!sel.value) return;
-  currentDsPath = sel.value;
-  document.getElementById("stats").textContent = "Loading...";
-  document.getElementById("samples").innerHTML = '<div class="loading">Loading dataset...</div>';
+        thread = threading.Thread(
+            target=_eval_runner_thread,
+            args=(run_id, abs_dataset, model_name, max_samples, random_sample),
+            daemon=True,
+        )
+        thread.start()
 
-  const resp = await fetch(currentDsPath);
-  const text = await resp.text();
-  const truncated = resp.headers.get("X-Dataset-Truncated") === "true";
-  const lines = text.trim().split("\n");
-  allSamples = [];
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try { allSamples.push(JSON.parse(line)); }
-    catch (e) { console.warn("bad line:", line.substring(0, 80)); }
-  }
-  renderSamples(allSamples, truncated);
-  document.getElementById("search-input").disabled = false;
-  document.getElementById("btn-filter").disabled = false;
-  document.getElementById("btn-clear-filter").disabled = false;
-}
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"run_id": run_id}).encode("utf-8"))
 
-/* ---- filtering ---- */
-function filterSamples() {
-  const q = document.getElementById("search-input").value.trim().toLowerCase();
-  if (!q) { renderSamples(allSamples); return; }
-  const filtered = allSamples.filter(s => {
-    const searchStr = [s.fixed || "", s.code || "", (s.edits || []).map(e => e.original_name + " " + e.corrupted_name).join(" ")].join(" ").toLowerCase();
-    return searchStr.includes(q);
-  });
-  renderSamples(filtered);
-}
+    # ---- Eval status (GET) ---------------------------------------------------
 
-function clearFilter() {
-  document.getElementById("search-input").value = "";
-  renderSamples(allSamples);
-}
+    def _serve_eval_status(self, run_id: str):
+        """Return eval progress + new results since last poll.
 
-/* ---- render ---- */
-function renderSamples(samples, truncated) {
-  truncated = truncated || false;
-  const container = document.getElementById("samples");
-  let msg = samples.length + " / " + allSamples.length + " samples";
-  if (truncated) msg += "  ⚠ view truncated at 10 MiB";
-  document.getElementById("stats").textContent = msg;
-  if (samples.length === 0) {
-    container.innerHTML = '<div class="no-samples">No samples to show.</div>';
-    return;
-  }
-  let html = "";
-  for (let i = 0; i < samples.length; i++) {
-    html += renderSample(samples[i], i);
-  }
-  container.innerHTML = html;
-  // Apply highlight.js to all code blocks.
-  document.querySelectorAll("code.language-python").forEach(el => hljs.highlightElement(el));
-}
+        Query param ``?since=N`` controls the cursor (default 0).
+        """
+        with _eval_lock:
+            state = _running_evals.get(run_id)
 
-function renderSample(s, idx) {
-  const original = s.fixed || "";
-  const corrupted = s.code || "";
-  const hasErrors = s.has_errors;
-  const edits = s.edits || [];
+        if state is None:
+            self.send_error(404, "Unknown run_id")
+            return
 
-  // Compute line diffs between original and corrupted.
-  const [diffOrig, diffCorr] = sideBySideWithWordDiff(original, corrupted);
+        # Parse the ?since= cursor.
+        parsed = urlparse(self.path)
+        qs = parsed.query
+        since = 0
+        if qs:
+            from urllib.parse import parse_qs
+            params = parse_qs(qs)
+            try:
+                since = int(params.get("since", ["0"])[0])
+            except (ValueError, TypeError):
+                since = 0
 
-  let editInfo = "";
-  if (edits.length > 0) {
-    editInfo = edits.map(e =>
-      `<span style="color:#cf222e">${esc(e.corrupted_name)}</span> → <span style="color:#1a7f37">${esc(e.original_name)}</span>`
-    ).join(", ");
-  }
+        with _eval_lock:
+            all_results = list(state["results"])
+            done = state["done"]
+            error = state["error"]
+            metrics = state["metrics"]
+            total = state["total"]
 
-  return `
-  <div class="sample">
-    <div class="sample-header">
-      <span>Sample #${idx + 1} ${hasErrors ? "⛔" : "✅"}</span>
-      <span class="edits">${editInfo}</span>
-    </div>
-    <div class="panes">
-      <div class="pane">
-        <div class="pane-label fixed">✦ Original (ground truth)</div>
-        <pre><code class="language-python">${escapePreservingHighlights(diffOrig)}</code></pre>
-      </div>
-      <div class="pane">
-        <div class="pane-label corrupted">✧ Corrupted (with typos)</div>
-        <pre><code class="language-python">${escapePreservingHighlights(diffCorr)}</code></pre>
-      </div>
-    </div>
-  </div>`;
-}
+        new_results = all_results[since:]
+        last_idx = since + len(new_results)
 
-/* ---- diff helpers ---- */
-const dmp = new diff_match_patch();
+        payload = {
+            "run_id": run_id,
+            "done": done,
+            "total": total,
+            "processed": len(all_results),
+            "new_results": [
+                self._serialize_sample_result(r) for r in new_results
+            ],
+            "last_idx_sent": last_idx,
+            "error": error,
+        }
+        if done:
+            payload["metrics"] = metrics
 
-/**
- * Compute side-by-side word-diff markup.
- * Both strings are split into lines and each line pair is word-diffed.
- * Returns [leftHtml, rightHtml] with <span class="hl-diff-*"> wrappers.
- */
-function sideBySideWithWordDiff(original, corrupted) {
-  const origLines = original.split("\n");
-  const corrLines = corrupted.split("\n");
-  const maxLines = Math.max(origLines.length, corrLines.length);
+        self._serve_json(payload)
 
-  const leftOut = [];
-  const rightOut = [];
-
-  for (let i = 0; i < maxLines; i++) {
-    const ol = i < origLines.length ? origLines[i] : "";
-    const cl = i < corrLines.length ? corrLines[i] : "";
-
-    // If lines are identical, no highlighting.
-    if (ol === cl) {
-      leftOut.push(esc(ol));
-      rightOut.push(esc(cl));
-      continue;
-    }
-
-    // Do a character diff on the two lines.
-    const diffs = dmp.diff_main(ol, cl);
-    dmp.diff_cleanupSemantic(diffs);
-
-    let leftLine = "";
-    let rightLine = "";
-
-    for (const [op, text] of diffs) {
-      const escaped = esc(text);
-      if (op === 0) {
-        leftLine += escaped;
-        rightLine += escaped;
-      } else if (op === -1) {
-        leftLine += `<span class="hl-diff-removed">${escaped}</span>`;
-      } else { // op === 1
-        rightLine += `<span class="hl-diff-added">${escaped}</span>`;
-      }
-    }
-
-    leftOut.push(leftLine);
-    rightOut.push(rightLine);
-  }
-
-  return [leftOut.join("\n"), rightOut.join("\n")];
-}
-
-/* ---- utilities ---- */
-function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/**
- * Escapes HTML but preserves <span...> tags we've already added.
- * Used when embedding pre-highlighted diffs into <code> blocks.
- */
-function escapePreservingHighlights(html) {
-  // Temporarily protect <span> tags, escape the rest, then restore.
-  const spans = [];
-  const safe = html.replace(/<span[^>]*>.*?<\/span>/gs, (m) => {
-    spans.push(m);
-    return "\u0000SPAN" + (spans.length - 1) + "\u0000";
-  });
-  // No need to escape safe since all text was already escaped by sideBySideWithWordDiff.
-  return safe.replace(/\u0000SPAN(\d+)\u0000/g, (_, i) => spans[+i]);
-}
-</script>
-</body>
-</html>"""
+    @staticmethod
+    def _serialize_sample_result(result) -> Dict[str, object]:
+        """Convert :class:`SampleResult` to a JSON-safe dict."""
+        return {
+            "index": result.sample_index,
+            "exact_match": result.exact_match,
+            "corrupted_code": result.corrupted_code,
+            "predicted_code": result.predicted_code,
+            "ground_truth_code": result.ground_truth_code,
+            "model_fixes": result.model_fixes,
+            "gt_original_names": result.gt_original_names,
+            "gt_corrupted_names": result.gt_corrupted_names,
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -434,4 +440,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# %%

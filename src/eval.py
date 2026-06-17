@@ -61,6 +61,9 @@ def _save_results(
         {
             "index": r.sample_index,
             "exact_match": r.exact_match,
+            "corrupted_code": r.corrupted_code,
+            "predicted_code": r.predicted_code,
+            "ground_truth_code": r.ground_truth_code,
             "model_fixes": r.model_fixes,
             "gt_original_names": r.gt_original_names,
             "gt_corrupted_names": r.gt_corrupted_names,
