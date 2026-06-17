@@ -119,7 +119,14 @@ wrap them similarly.
   only `has_errors=true` samples.
 - Per sample: extracts identifiers from corrupted code, calls
   `model.fix_names(code, names)`, applies each suggested fix via Jedi rename
-  (re-extracting positions after each rename because offsets may shift).
+  (re-extracting positions after **each** rename — not just between different
+  names — because earlier renames shift character offsets even within the
+  same name's multiple scopes).
+  ``RefactoringError`` from Jedi is caught; failed renaming attempts skip
+  that definition position and try the next one.
+- ``model_fixes`` in :class:`SampleResult` reflects the model's **raw
+  suggestions** (not just the successfully applied ones), so identifier-level
+  metrics evaluate the model rather than the rename harness.
 - Metrics: exact match, identifier-level precision/recall/F1, normalised
   Levenshtein edit distance (via `Levenshtein` package).
 - Parallel: ``workers=0`` auto-detects CPU count; workers re-create the model

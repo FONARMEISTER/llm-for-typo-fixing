@@ -97,21 +97,37 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
     # Get model suggestions.
     fixes = model.fix_names(corrupted, all_names)
 
-    # Apply fixes sequentially, re-extracting positions each time because
-    # earlier renames may shift character offsets in subsequent lines.
+    # Apply fixes sequentially, re-extracting after every rename because
+    # character offsets shift.  Each identifier may be defined in multiple
+    # scopes — we rename them one scope at a time, re-extracting after each.
     predicted = corrupted
     for corrupted_name, fixed_name in fixes.items():
         if corrupted_name == fixed_name:
             continue
-        current_ids = extract_renameable_identifiers(predicted)
-        if corrupted_name not in current_ids:
-            continue
-        # Apply rename at each definition position of this name.
-        for line, col in current_ids[corrupted_name]:
-            changed = apply_jedi_rename(predicted, line, col, fixed_name)
+        # Keep re-extracting and renaming until no more definitions of this
+        # name remain, or until we've tried every available position without
+        # success (e.g., Jedi rejects all of them).
+        tried = 0
+        while True:
+            current_ids = extract_renameable_identifiers(predicted)
+            positions = current_ids.get(corrupted_name, [])
+            if not positions:
+                break
+            if tried >= len(positions):
+                break  # exhausted all positions without success.
+            line, col = positions[tried]
+            try:
+                changed = apply_jedi_rename(predicted, line, col, fixed_name)
+            except Exception:
+                # Jedi may choke on edge cases (unresolvable type, stale
+                # internal state, etc.).  Skip this position.
+                tried += 1
+                continue
             if changed:
-                # Take the primary file's new code (first value in the dict).
                 predicted = next(iter(changed.values()))
+                tried = 0  # reset — code changed, positions need re-extraction.
+                continue
+            tried += 1  # rename returned empty result, try next position.
 
     # Ground-truth edit info from the dataset record.
     gt_edits = sample.get("edits", [])
