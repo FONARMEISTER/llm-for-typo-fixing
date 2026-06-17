@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-all eval lint clean
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval viewer lint clean
 
 # Run all tests.
 test:
@@ -33,28 +33,7 @@ build-mbpp:
 		--p-edit 0.8 \
 		--seed 42
 
-# Run evaluation with the spellchecker baseline on the demo dataset.
-eval:
-	uv run python -m src.eval \
-		--model spellcheck \
-		--dataset data/demo.jsonl
-
-# Build all datasets (demo, mbpp, magicoder, codealpaca).
-build-all:
-	uv run python -m src.build_dataset \
-		--source demo \
-		--out data/demo.jsonl \
-		--variants-per-snippet 5 \
-		--max-edits 3 \
-		--p-edit 0.8 \
-		--seed 42
-	uv run python -m src.build_dataset \
-		--source mbpp \
-		--out data/mbpp/ \
-		--variants-per-snippet 5 \
-		--max-edits 3 \
-		--p-edit 0.8 \
-		--seed 42
+build-magicoder:
 	uv run python -m src.build_dataset \
 		--source magicoder \
 		--out data/magicoder/ \
@@ -62,6 +41,8 @@ build-all:
 		--max-edits 3 \
 		--p-edit 0.8 \
 		--seed 42
+
+build-codealpaca:
 	uv run python -m src.build_dataset \
 		--source codealpaca \
 		--out data/codealpaca/ \
@@ -69,6 +50,15 @@ build-all:
 		--max-edits 3 \
 		--p-edit 0.8 \
 		--seed 42
+
+# Build all datasets (demo, mbpp, magicoder, codealpaca).
+build-all: build-demo build-mbpp build-magicoder
+
+# Run evaluation with the spellchecker baseline on the demo dataset.
+eval:
+	uv run python -m src.eval \
+		--model spellcheck \
+		--dataset data/demo.jsonl
 
 # Lint Python sources.
 lint:
