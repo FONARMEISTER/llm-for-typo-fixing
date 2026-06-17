@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -25,6 +26,9 @@ class _Handler(SimpleHTTPRequestHandler):
     """Serve static files from the project root and API endpoints."""
     upload_form: ClassVar[str] = ""
 
+    # JSONL files larger than this are served truncated at a newline boundary.
+    MAX_JSONL_BYTES: ClassVar[int] = 10 * 1024 * 1024  # 10 MiB
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
@@ -39,9 +43,10 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_json(self._list_datasets())
             return
 
-        # Serve actual JSONL content.
+        # Serve actual JSONL content (with size-aware truncation).
         if path.startswith("/data/") and path.endswith(".jsonl"):
-            self._serve_file(str(PROJECT_ROOT / path.lstrip("/")))
+            abs_path = str(PROJECT_ROOT / path.lstrip("/"))
+            self._serve_jsonl(abs_path)
             return
 
         # Fall back to static file serving from project root.
@@ -63,13 +68,27 @@ class _Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _serve_file(self, abs_path: str):
+    def _serve_jsonl(self, abs_path: str):
+        """Serve a JSONL file, truncating if larger than MAX_JSONL_BYTES."""
         try:
+            file_size = os.path.getsize(abs_path)
             with open(abs_path, "rb") as f:
-                data = f.read()
+                if file_size <= self.MAX_JSONL_BYTES:
+                    data = f.read()
+                    truncated = False
+                else:
+                    # Read the first MAX_JSONL_BYTES, then seek back to the
+                    # last newline to avoid splitting a JSON line.
+                    data = f.read(self.MAX_JSONL_BYTES)
+                    nl_idx = data.rfind(b"\n")
+                    if nl_idx >= 0:
+                        data = data[: nl_idx + 1]
+                    truncated = True
+
             self.send_response(200)
-            ct = "application/json" if abs_path.endswith(".jsonl") else "text/plain"
-            self.send_header("Content-Type", ct)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            if truncated:
+                self.send_header("X-Dataset-Truncated", "true")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -95,6 +114,20 @@ class _Handler(SimpleHTTPRequestHandler):
                     "size": p.stat().st_size,
                 })
         return datasets
+
+    def _serve_file(self, abs_path: str):
+        """Serve an arbitrary static file (non-JSONL fallback)."""
+        try:
+            with open(abs_path, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            ct = "application/json" if abs_path.endswith(".jsonl") else "text/plain"
+            self.send_header("Content-Type", ct)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except (FileNotFoundError, PermissionError, IsADirectoryError):
+            self.send_error(404)
 
 
 # --------------------------------------------------------------------------- #
@@ -214,6 +247,7 @@ async function loadDataset() {
 
   const resp = await fetch(currentDsPath);
   const text = await resp.text();
+  const truncated = resp.headers.get("X-Dataset-Truncated") === "true";
   const lines = text.trim().split("\n");
   allSamples = [];
   for (const line of lines) {
@@ -221,7 +255,7 @@ async function loadDataset() {
     try { allSamples.push(JSON.parse(line)); }
     catch (e) { console.warn("bad line:", line.substring(0, 80)); }
   }
-  renderSamples(allSamples);
+  renderSamples(allSamples, truncated);
   document.getElementById("search-input").disabled = false;
   document.getElementById("btn-filter").disabled = false;
   document.getElementById("btn-clear-filter").disabled = false;
@@ -244,10 +278,12 @@ function clearFilter() {
 }
 
 /* ---- render ---- */
-function renderSamples(samples) {
+function renderSamples(samples, truncated) {
+  truncated = truncated || false;
   const container = document.getElementById("samples");
-  document.getElementById("stats").textContent =
-    samples.length + " / " + allSamples.length + " samples";
+  let msg = samples.length + " / " + allSamples.length + " samples";
+  if (truncated) msg += "  ⚠ view truncated at 10 MiB";
+  document.getElementById("stats").textContent = msg;
   if (samples.length === 0) {
     container.innerHTML = '<div class="no-samples">No samples to show.</div>';
     return;
