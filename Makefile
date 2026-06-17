@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer lint clean train-gector eval-gector eval-gector-demo eval-gector-mbpp
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer lint clean train-gector train-gector-all
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -7,6 +7,14 @@ WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 MODEL ?= spellcheck
 DATASET ?= data/demo.jsonl
 OUTPUT ?= results.json
+
+# GECToR checkpoint directory (override with: make train-gector GECTOR_MODEL=...)
+GECTOR_MODEL ?= models/gector-roberta
+# Encoder backbone (override with: make train-gector GECTOR_ENCODER=microsoft/codebert-base)
+GECTOR_ENCODER ?= roberta-base
+GECTOR_EPOCHS ?= 10
+GECTOR_BATCH  ?= 16
+GECTOR_LR     ?= 2e-5
 
 # Run all tests.
 test:
@@ -67,77 +75,97 @@ build-all: build-demo build-mbpp build-magicoder build-codealpaca
 
 # Run evaluation with the spellchecker baseline (parallel by default).
 # Usage: make eval DATASET=data/demo.jsonl MODEL=spellcheck
+# Usage: make eval DATASET=data/mbpp/test.jsonl MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval:
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset $(DATASET) \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 
 # Run evaluation on demo dataset.
 # Usage: make eval-demo MODEL=spellcheck
+# Usage: make eval-demo MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-demo:
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/demo.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 
 # Run evaluation on MBPP dataset (all splits).
 # Usage: make eval-mbpp MODEL=spellcheck
+# Usage: make eval-mbpp MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-mbpp:
 	@echo "Evaluating MBPP train split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/mbpp/train.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating MBPP validation split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/mbpp/validation.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating MBPP test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/mbpp/test.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 
 # Run evaluation on Magicoder dataset (all splits).
 # Usage: make eval-magicoder MODEL=spellcheck
+# Usage: make eval-magicoder MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-magicoder:
 	@echo "Evaluating Magicoder train split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/magicoder/train.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating Magicoder validation split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/magicoder/validation.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating Magicoder test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/magicoder/test.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 
 # Run evaluation on CodeAlpaca dataset (all splits).
 # Usage: make eval-codealpaca MODEL=spellcheck
+# Usage: make eval-codealpaca MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-codealpaca:
 	@echo "Evaluating CodeAlpaca train split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/codealpaca/train.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating CodeAlpaca validation split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/codealpaca/validation.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 	@echo "Evaluating CodeAlpaca test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/codealpaca/test.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
 		--workers $(WORKERS)
 
+# Run evaluation on ALL datasets (demo + mbpp + magicoder + codealpaca), all splits.
+# Usage: make eval-all MODEL=spellcheck
+# Usage: make eval-all MODEL=gector GECTOR_MODEL=models/gector-roberta
+eval-all: eval-demo eval-mbpp eval-magicoder eval-codealpaca
 
 # Start the dataset viewer (opens browser).
 viewer:
@@ -160,13 +188,6 @@ clean:
 # GECToR targets
 # ------------------------------------------------------------------ #
 
-# GECToR checkpoint directory (override with: make train-gector GECTOR_MODEL=...)
-GECTOR_MODEL ?= models/gector-roberta
-# Encoder backbone (override with: make train-gector GECTOR_ENCODER=microsoft/codebert-base)
-GECTOR_ENCODER ?= roberta-base
-GECTOR_EPOCHS ?= 10
-GECTOR_BATCH  ?= 16
-GECTOR_LR     ?= 2e-5
 
 # Fine-tune GECToR on MBPP only (train + val splits).
 # Requires: make build-mbpp first.
@@ -184,7 +205,9 @@ train-gector:
 		--lr $(GECTOR_LR)
 
 # Fine-tune GECToR on ALL available datasets merged (mbpp + magicoder + codealpaca).
-# Validation uses MBPP validation split.
+# Train  = all three *train* splits merged (no demo, no test).
+# Val    = all three *validation* splits merged.
+# Test splits are reserved for post-training evaluation (eval-gector-all).
 # Requires: make build-all first.
 # Usage:
 #   make train-gector-all
@@ -195,49 +218,11 @@ train-gector-all:
 		        data/magicoder/train.jsonl \
 		        data/codealpaca/train.jsonl \
 		--val   data/mbpp/validation.jsonl \
+		        data/magicoder/validation.jsonl \
+		        data/codealpaca/validation.jsonl \
 		--out   $(GECTOR_MODEL)-all \
 		--encoder $(GECTOR_ENCODER) \
 		--epochs $(GECTOR_EPOCHS) \
 		--batch-size $(GECTOR_BATCH) \
 		--lr $(GECTOR_LR)
 
-# Evaluate GECToR on the demo dataset.
-# Usage: make eval-gector-demo GECTOR_MODEL=models/gector-roberta
-eval-gector-demo:
-	uv run python -m src.eval \
-		--model gector \
-		--dataset data/demo.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers 1
-
-# Evaluate GECToR on MBPP test split.
-# Usage: make eval-gector-mbpp GECTOR_MODEL=models/gector-roberta
-eval-gector-mbpp:
-	uv run python -m src.eval \
-		--model gector \
-		--dataset data/mbpp/test.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers 1
-
-# Evaluate GECToR on Magicoder test split.
-eval-gector-magicoder:
-	uv run python -m src.eval \
-		--model gector \
-		--dataset data/magicoder/test.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers 1
-
-# Evaluate GECToR on CodeAlpaca test split.
-eval-gector-codealpaca:
-	uv run python -m src.eval \
-		--model gector \
-		--dataset data/codealpaca/test.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers 1
-
-# Evaluate GECToR on ALL dataset test splits (mbpp + magicoder + codealpaca).
-# Usage: make eval-gector-all GECTOR_MODEL=models/gector-roberta
-eval-gector-all: eval-gector-demo eval-gector-mbpp eval-gector-magicoder eval-gector-codealpaca
-
-# Shorthand: evaluate best checkpoint on demo.
-eval-gector: eval-gector-demo
