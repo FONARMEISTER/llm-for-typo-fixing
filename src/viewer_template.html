@@ -78,9 +78,11 @@
   .max-samples-label input[type="number"] { width: 60px; text-align: center; }
   /* GECToR model dir row — hidden unless gector is selected */
   #gector-row { display: none; align-items: center; gap: 6px; font-size: 12px; color: #57606a;
-                margin-bottom: 8px; }
-  #gector-row input { flex: 1; min-width: 260px; font: inherit; padding: 5px 8px;
+                margin-bottom: 8px; flex-wrap: wrap; }
+  #gector-row input { flex: 1; min-width: 220px; font: inherit; padding: 5px 8px;
                       border: 1px solid var(--border); border-radius: 6px; }
+  #gector-row select { font: inherit; padding: 5px 8px; border: 1px solid var(--border);
+                       border-radius: 6px; background: #fff; cursor: pointer; }
   #gector-row label { white-space: nowrap; font-weight: 600; }
 </style>
 </head>
@@ -104,7 +106,11 @@
 
 <!-- GECToR model directory row (shown only when gector model is selected) -->
 <div id="gector-row">
-  <label for="gector-model-dir">🤖 GECToR checkpoint dir:</label>
+  <label for="gector-model-dir">🤖 GECToR checkpoint:</label>
+  <select id="gector-ckpt-select" title="Select a trained checkpoint from models/">
+    <option value="">— select checkpoint —</option>
+  </select>
+  <span style="color:#aaa;font-size:11px">or type path:</span>
   <input id="gector-model-dir" type="text"
          placeholder="models/gector-roberta/best"
          title="Path to the GECToR checkpoint directory (e.g. models/gector-roberta/best)">
@@ -175,6 +181,26 @@ let evalAllResults = [];      // accumulated results for incremental metrics.
   mSel.onchange = () => { updateButtons(); updateGectorRow(); };
   updateButtons();
   updateGectorRow();
+
+  // Load GECToR checkpoints.
+  try {
+    const ckptResp = await fetch("/api/gector_checkpoints");
+    const checkpoints = await ckptResp.json();
+    const ckptSel = document.getElementById("gector-ckpt-select");
+    for (const ck of checkpoints) {
+      const opt = document.createElement("option");
+      opt.value = ck.path;
+      opt.textContent = ck.label;
+      ckptSel.appendChild(opt);
+    }
+    ckptSel.onchange = () => {
+      if (ckptSel.value) {
+        document.getElementById("gector-model-dir").value = ckptSel.value;
+      }
+    };
+  } catch (e) {
+    console.warn("Could not load GECToR checkpoints:", e);
+  }
 
   document.getElementById("btn-load").onclick = loadDataset;
   document.getElementById("btn-eval").onclick = startEval;

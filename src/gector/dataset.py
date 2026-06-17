@@ -31,14 +31,13 @@ length using the tokenizer's ``pad_token_id`` for ``input_ids`` and
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Union
 
 import torch
-from torch.utils.data import Dataset
 
-from .vocab import TagVocab, KEEP_IDX, UNK_IDX, replace_tag
+from ..typo_datasets import BaseTypoDataset
+from .vocab import TagVocab, KEEP_IDX, replace_tag
 from .tokenize_code import (
     code_tokens_from_source,
     align_to_subwords,
@@ -48,8 +47,12 @@ from .tokenize_code import (
 LABEL_IGNORE: int = -100  # CrossEntropyLoss ignore_index
 
 
-class GECToRDataset(Dataset):
+class GECToRDataset(BaseTypoDataset):
     """Dataset that converts JSONL samples to GECToR training tensors.
+
+    Inherits file loading, ``__len__``, and ``__getitem__`` from
+    :class:`~src.typo_datasets.BaseTypoDataset` and implements
+    :meth:`_process_item` for the GECToR-specific dual-label format.
 
     Parameters
     ----------
@@ -70,41 +73,32 @@ class GECToRDataset(Dataset):
 
     def __init__(
         self,
-        paths: List[str | Path],
+        paths: Union[str, List[Union[str, Path]]],
         vocab: TagVocab,
         tokenizer,
         max_length: int = 512,
         include_clean: bool = True,
     ) -> None:
+        # Normalise paths to plain strings for BaseTypoDataset.
+        if isinstance(paths, (str, Path)):
+            norm_paths: List[str] = [str(paths)]
+        else:
+            norm_paths = [str(p) for p in paths]
+
+        # BaseTypoDataset handles all file I/O and populates self.data.
+        super().__init__(norm_paths, tokenizer, max_length)
+
         self.vocab = vocab
-        self.tokenizer = tokenizer
-        self.max_length = max_length
 
-        self._samples: List[dict] = []
-        for path in paths:
-            path = Path(path)
-            with path.open(encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    sample = json.loads(line)
-                    if not include_clean and not sample.get("has_errors"):
-                        continue
-                    self._samples.append(sample)
-
-    def __len__(self) -> int:
-        return len(self._samples)
-
-    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
-        sample = self._samples[idx]
-        return self._encode(sample)
+        # Optionally drop clean (error-free) samples.
+        if not include_clean:
+            self.data = [s for s in self.data if s.get("has_errors")]
 
     # ---------------------------------------------------------------- #
-    # Encoding
+    # Encoding  (called by BaseTypoDataset.__getitem__)
     # ---------------------------------------------------------------- #
 
-    def _encode(self, sample: dict) -> Dict[str, torch.Tensor]:
+    def _process_item(self, sample: dict) -> Dict[str, torch.Tensor]:
         """Convert one JSONL sample to a dict of tensors.
 
         Returns

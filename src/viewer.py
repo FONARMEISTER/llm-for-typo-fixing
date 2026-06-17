@@ -24,6 +24,7 @@ from urllib.parse import urlparse, unquote
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
+MODELS_DIR = PROJECT_ROOT / "models"
 TEMPLATE_PATH = Path(__file__).resolve().parent / "viewer_template.html"
 
 # Support both `python -m src.viewer` and `python src/viewer.py`.
@@ -166,6 +167,11 @@ class _Handler(SimpleHTTPRequestHandler):
             self._serve_json(self._list_models())
             return
 
+        # List available GECToR checkpoint directories.
+        if path == "/api/gector_checkpoints":
+            self._serve_json(self._list_gector_checkpoints())
+            return
+
         # Poll eval progress.
         if path.startswith("/api/eval/status/"):
             run_id = path.split("/")[-1]
@@ -255,6 +261,26 @@ class _Handler(SimpleHTTPRequestHandler):
     def _list_models(self):
         """Return available model names from the registry."""
         return list(MODEL_REGISTRY.keys())
+
+    def _list_gector_checkpoints(self) -> List[Dict[str, str]]:
+        """Scan ``models/`` for directories that look like GECToR checkpoints.
+
+        A directory is considered a checkpoint if it contains ``vocab.txt``
+        (written by every :meth:`~src.gector.model.GECToRModel.save_pretrained`
+        call).
+        """
+        checkpoints: List[Dict[str, str]] = []
+        if not MODELS_DIR.exists():
+            return checkpoints
+        for entry in sorted(MODELS_DIR.rglob("vocab.txt")):
+            ckpt_dir = entry.parent
+            # Use a path relative to the project root for display.
+            try:
+                rel = str(ckpt_dir.relative_to(PROJECT_ROOT))
+            except ValueError:
+                rel = str(ckpt_dir)
+            checkpoints.append({"label": rel, "path": rel})
+        return checkpoints
 
     # ---- JSONL serving -------------------------------------------------------
 

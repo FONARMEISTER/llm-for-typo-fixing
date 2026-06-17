@@ -28,6 +28,10 @@ The script:
 3. Trains with AdamW + linear warmup + cosine decay.
 4. Saves a checkpoint after every epoch and keeps the best by validation
    tag-loss.
+5. Saves ``training_history.json`` with per-epoch loss **and** binary
+   detection F1 for both the training and validation sets.
+6. Optionally saves ``learning_curves.png`` if ``matplotlib`` is
+   installed.
 """
 
 from __future__ import annotations
@@ -38,13 +42,13 @@ import math
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from .dataset import GECToRDataset, make_collate_fn
+from .dataset import GECToRDataset, make_collate_fn, LABEL_IGNORE
 from .model import GECToRModel
 from .vocab import TagVocab
 
@@ -87,6 +91,87 @@ def _linear_warmup_cosine_decay(
         return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
     return LambdaLR(optimizer, lr_lambda)
+
+
+def _compute_f1(tp: int, fp: int, fn: int) -> Tuple[float, float, float]:
+    """Return (precision, recall, F1) for the positive (error) class."""
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall    = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (2.0 * precision * recall / (precision + recall)
+          if (precision + recall) > 0 else 0.0)
+    return precision, recall, f1
+
+
+def _accumulate_detect(
+    detect_logits: torch.Tensor,
+    detect_labels: torch.Tensor,
+) -> Tuple[int, int, int]:
+    """Return (tp, fp, fn) for one batch's detection head output.
+
+    Only positions where ``detect_labels != LABEL_IGNORE`` are counted.
+
+    Parameters
+    ----------
+    detect_logits : FloatTensor [B, L, 2]
+    detect_labels : LongTensor  [B, L]
+    """
+    with torch.no_grad():
+        preds = detect_logits.detach().argmax(dim=-1)   # [B, L]
+        labels = detect_labels.detach()
+        mask = labels != LABEL_IGNORE
+
+        p = preds[mask]
+        l = labels[mask]
+
+        tp = int(((p == 1) & (l == 1)).sum().item())
+        fp = int(((p == 1) & (l == 0)).sum().item())
+        fn = int(((p == 0) & (l == 1)).sum().item())
+    return tp, fp, fn
+
+
+def _try_plot_learning_curves(history: List[dict], out_path: Path) -> None:
+    """Save ``learning_curves.png`` to *out_path* if matplotlib is available."""
+    try:
+        import matplotlib.pyplot as plt  # type: ignore[import]
+    except ImportError:
+        print(
+            "  (matplotlib not installed — skipping learning_curves.png; "
+            "run `pip install matplotlib` to enable plots)"
+        )
+        return
+
+    epochs = [h["epoch"] for h in history]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # ---- Loss ----
+    ax = axes[0]
+    ax.plot(epochs, [h["train_loss"] for h in history], marker="o", label="train")
+    ax.plot(epochs, [h["val_loss"] for h in history], marker="o", label="val")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Loss")
+    ax.set_title("Training / Validation Loss")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    # ---- Detection F1 ----
+    ax = axes[1]
+    ax.plot(epochs, [h.get("train_detect_f1", 0.0) for h in history],
+            marker="o", label="train detect F1")
+    ax.plot(epochs, [h.get("val_detect_f1", 0.0) for h in history],
+            marker="o", label="val detect F1")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("F1")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_title("Token-level Error Detection F1")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    plot_path = out_path / "learning_curves.png"
+    fig.savefig(plot_path, dpi=100)
+    plt.close(fig)
+    print(f"Learning curves saved to {plot_path}")
 
 
 # ------------------------------------------------------------------ #
@@ -235,6 +320,7 @@ def train(
         model.train()
         train_loss = 0.0
         train_steps = 0
+        train_tp = train_fp = train_fn = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [train]", leave=False)
         for batch in pbar:
@@ -260,12 +346,20 @@ def train(
             train_steps += 1
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
+            # Accumulate detection F1 stats.
+            tp, fp, fn = _accumulate_detect(out["detect_logits"], batch["detect_labels"])
+            train_tp += tp
+            train_fp += fp
+            train_fn += fn
+
         avg_train_loss = train_loss / max(train_steps, 1)
+        train_prec, train_rec, train_f1 = _compute_f1(train_tp, train_fp, train_fn)
 
         # -- Validate --
         model.eval()
         val_loss = 0.0
         val_steps = 0
+        val_tp = val_fp = val_fn = 0
 
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Epoch {epoch}/{epochs} [val]", leave=False):
@@ -279,13 +373,29 @@ def train(
                 val_loss += out["loss"].item()
                 val_steps += 1
 
-        avg_val_loss = val_loss / max(val_steps, 1)
+                tp, fp, fn = _accumulate_detect(out["detect_logits"], batch["detect_labels"])
+                val_tp += tp
+                val_fp += fp
+                val_fn += fn
 
-        print(
-            f"Epoch {epoch:3d}/{epochs}  "
-            f"train_loss={avg_train_loss:.4f}  "
-            f"val_loss={avg_val_loss:.4f}"
+        avg_val_loss = val_loss / max(val_steps, 1)
+        val_prec, val_rec, val_f1 = _compute_f1(val_tp, val_fp, val_fn)
+
+        epoch_summary = (
+            f"{'─'*60}\n"
+            f"Epoch {epoch:3d}/{epochs}\n"
+            f"  train  loss={avg_train_loss:.4f}  "
+            f"detect_P={train_prec:.4f}  "
+            f"detect_R={train_rec:.4f}  "
+            f"detect_F1={train_f1:.4f}\n"
+            f"  val    loss={avg_val_loss:.4f}  "
+            f"detect_P={val_prec:.4f}  "
+            f"detect_R={val_rec:.4f}  "
+            f"detect_F1={val_f1:.4f}"
         )
+        print(epoch_summary)
+        with open(out_path / "training.log", "a", encoding="utf-8") as _log:
+            _log.write(epoch_summary + "\n")
 
         # -- Save checkpoint --
         ckpt_dir = out_path / f"checkpoint-epoch{epoch}"
@@ -304,7 +414,18 @@ def train(
             "epoch": epoch,
             "train_loss": avg_train_loss,
             "val_loss": avg_val_loss,
+            "train_detect_precision": train_prec,
+            "train_detect_recall": train_rec,
+            "train_detect_f1": train_f1,
+            "val_detect_precision": val_prec,
+            "val_detect_recall": val_rec,
+            "val_detect_f1": val_f1,
         })
+
+        # Overwrite history after every epoch so progress is not lost
+        # if training is interrupted mid-run.
+        history_path = out_path / "training_history.json"
+        history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
 
     # ---- Save final model ----
     final_dir = out_path / "final"
@@ -313,10 +434,12 @@ def train(
     print(f"\nTraining complete.  Final model saved to {final_dir}")
     print(f"Best val_loss={best_val_loss:.4f} → {out_path / 'best'}")
 
-    # Save training history.
     history_path = out_path / "training_history.json"
     history_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
     print(f"Training history saved to {history_path}")
+
+    # ---- Learning curves ----
+    _try_plot_learning_curves(history, out_path)
 
 
 # ------------------------------------------------------------------ #
