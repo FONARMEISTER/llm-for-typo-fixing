@@ -339,15 +339,22 @@ def inject_typos(
 
     # Apply renames one by one, re-extracting positions before each
     # rename to avoid stale coordinates (an earlier rename may shift
-    # columns for identifiers on the same line).
+    # columns for identifiers on the same line).  Jedi internal errors
+    # (e.g. on type-inference edge cases) are caught and the offending
+    # rename is skipped.
     corrupted = source
+    applied_names: set = set()
     for original_name, typo_name, _unused_positions in chosen_renames:
         # Re-extract from the current source to get correct coordinates.
         fresh = _extract_renameable_identifiers(corrupted)
         if original_name not in fresh:
-            continue  # Prior rename somehow removed this name (should be rare).
+            continue
         line, col = rng.choice(fresh[original_name])
-        corrupted = _apply_rename(corrupted, line, col, typo_name)
+        try:
+            corrupted = _apply_rename(corrupted, line, col, typo_name)
+        except Exception:
+            continue
+        applied_names.add(original_name)
 
     # ---- Comment corruption ----
     corrupted_comments: List[str] = []
@@ -359,6 +366,8 @@ def inject_typos(
     # ---- Build result ----
     edits = []
     for original_name, typo_name, positions in chosen_renames:
+        if original_name not in applied_names:
+            continue
         count = _count_name_occurrences(source, original_name)
         edits.append(
             Edit(
