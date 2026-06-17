@@ -230,12 +230,13 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
 
 
 def _eval_worker(payload: Tuple[dict, int, str]) -> SampleResult:
-    """Process one sample in a child process — free function for pickling."""
-    sample, index, model_name = payload
+    """Process one sample in a child process — free function for pickling.
 
-    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
-    import jedi.settings
-    jedi.settings.cache_directory = None
+    The per-process Jedi cache isolation is handled at module-import time by
+    :mod:`identifier_utils` (imported at the top of this module).  No extra
+    setup is needed here.
+    """
+    sample, index, model_name = payload
 
     model = make_model(model_name)
     return _process_sample(sample, index, model)

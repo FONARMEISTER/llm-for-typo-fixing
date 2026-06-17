@@ -6,11 +6,30 @@ Used by both :mod:`typo_injector` (dataset generation) and :mod:`harness`
 
 from __future__ import annotations
 
+import atexit
 import builtins
 import keyword
+import pathlib
+import shutil
+import tempfile
 from typing import Dict, List, Optional, Tuple
 
 import jedi
+import jedi.settings
+
+# Give this process its own private parso cache directory.
+#
+# Setting cache_directory=None makes parso fall back to its *default* shared
+# path (~/Library/Caches/Parso on macOS).  In a multiprocessing scenario that
+# shared path is written to by every worker simultaneously, corrupting the
+# pickle files and causing "EOFError: Ran out of input".
+#
+# Using a per-process temp directory means each process has a fully isolated
+# cache — no cross-process writes, no corruption.  The directory is removed
+# automatically when the process exits via atexit.
+_jedi_cache_dir = tempfile.mkdtemp(prefix="jedi_proc_")
+jedi.settings.cache_directory = pathlib.Path(_jedi_cache_dir)
+atexit.register(shutil.rmtree, _jedi_cache_dir, True)
 
 # Names we never treat as renameable: language keywords, soft keywords,
 # builtins, and idiomatic "fixed" names.
@@ -76,13 +95,18 @@ def apply_jedi_rename(
     Raises ``jedi.api.exceptions.RefactoringError`` if there is no
     identifier under the cursor.
     """
-    kwargs: dict = {"code": source}
-    if path is not None:
-        kwargs["path"] = path
-    script = jedi.Script(**kwargs)  # type: ignore[arg-type]
-    refactoring = script.rename(line=line, column=col, new_name=new_name)
-    result: dict[str, str] = {}
-    if refactoring is not None:
-        for file_path, change in refactoring.get_changed_files().items():
-            result[file_path] = change.get_new_code()
-    return result
+    try:
+        kwargs: dict = {"code": source}
+        if path is not None:
+            kwargs["path"] = path
+        script = jedi.Script(**kwargs)  # type: ignore[arg-type]
+        refactoring = script.rename(line=line, column=col, new_name=new_name)
+        result: dict[str, str] = {}
+        if refactoring is not None:
+            for file_path, change in refactoring.get_changed_files().items():
+                result[file_path] = change.get_new_code()
+        return result
+    except Exception:
+        # Jedi may fail due to internal errors or edge cases.
+        # Return empty result to indicate failure.
+        return {}

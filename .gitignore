@@ -4,3 +4,7 @@ __pycache__/
 data/
 .cache/
 .DS_Store
+*.out
+*.log
+*.err
+models/

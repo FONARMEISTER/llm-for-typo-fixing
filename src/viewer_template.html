@@ -76,6 +76,12 @@
   .max-samples-label { font-size: 12px; color: #57606a; display: flex; align-items: center; gap: 4px; }
   .max-samples-label input[type="checkbox"] { width: auto; cursor: pointer; }
   .max-samples-label input[type="number"] { width: 60px; text-align: center; }
+  /* GECToR model dir row — hidden unless gector is selected */
+  #gector-row { display: none; align-items: center; gap: 6px; font-size: 12px; color: #57606a;
+                margin-bottom: 8px; }
+  #gector-row input { flex: 1; min-width: 260px; font: inherit; padding: 5px 8px;
+                      border: 1px solid var(--border); border-radius: 6px; }
+  #gector-row label { white-space: nowrap; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -94,6 +100,14 @@
     <input type="number" id="input-max-samples" value="100" min="1">
   </label>
   <span id="stats"></span>
+</div>
+
+<!-- GECToR model directory row (shown only when gector model is selected) -->
+<div id="gector-row">
+  <label for="gector-model-dir">🤖 GECToR checkpoint dir:</label>
+  <input id="gector-model-dir" type="text"
+         placeholder="models/gector-roberta/best"
+         title="Path to the GECToR checkpoint directory (e.g. models/gector-roberta/best)">
 </div>
 
 <!-- Dataset browsing: search -->
@@ -157,8 +171,10 @@ let evalAllResults = [];      // accumulated results for incremental metrics.
   }
 
   // Enable buttons when both dataset and model are selected.
-  dsSel.onchange = mSel.onchange = updateButtons;
+  dsSel.onchange = () => { updateButtons(); };
+  mSel.onchange = () => { updateButtons(); updateGectorRow(); };
   updateButtons();
+  updateGectorRow();
 
   document.getElementById("btn-load").onclick = loadDataset;
   document.getElementById("btn-eval").onclick = startEval;
@@ -181,6 +197,12 @@ function updateButtons() {
   const mVal = document.getElementById("model-select").value;
   document.getElementById("btn-load").disabled = !dsVal;
   document.getElementById("btn-eval").disabled = !dsVal || !mVal;
+}
+
+function updateGectorRow() {
+  const mVal = document.getElementById("model-select").value;
+  const row = document.getElementById("gector-row");
+  row.style.display = (mVal === "gector") ? "flex" : "none";
 }
 
 function formatSize(bytes) {
@@ -305,6 +327,16 @@ async function startEval() {
   const modelName = document.getElementById("model-select").value;
   if (!dsPath || !modelName) return;
 
+  // Validate GECToR checkpoint dir if needed.
+  if (modelName === "gector") {
+    const gectorDir = document.getElementById("gector-model-dir").value.trim();
+    if (!gectorDir) {
+      alert("Please enter the GECToR checkpoint directory path (e.g. models/gector-roberta/best).");
+      document.getElementById("gector-model-dir").focus();
+      return;
+    }
+  }
+
   stopPolling();
   evalReceivedCount = 0;
   evalAllResults = [];
@@ -323,12 +355,22 @@ async function startEval() {
     body.max_samples = parseInt(document.getElementById("input-max-samples").value) || 100;
     body.random_sample = true;
   }
+  // Include GECToR checkpoint dir if applicable.
+  if (modelName === "gector") {
+    body.gector_model_dir = document.getElementById("gector-model-dir").value.trim();
+  }
 
   const resp = await fetch("/api/eval/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    document.getElementById("eval-progress").style.display = "block";
+    document.getElementById("progress-text").textContent = "⚠ Error: " + errText;
+    return;
+  }
   const data = await resp.json();
   evalRunId = data.run_id;
 

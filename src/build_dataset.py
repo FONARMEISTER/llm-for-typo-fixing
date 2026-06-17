@@ -82,12 +82,13 @@ def _emit(snippet: str, rng: random.Random, args: argparse.Namespace) -> Iterabl
 
 
 def _worker(payload: tuple) -> tuple[str, List[dict]]:
-    """Process a single snippet — runs in a child process."""
-    snippet, seed, args_dict = payload
+    """Process a single snippet — runs in a child process.
 
-    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
-    import jedi.settings
-    jedi.settings.cache_directory = None
+    The per-process Jedi cache isolation is handled at module-import time by
+    :mod:`identifier_utils` (which is imported transitively via
+    :mod:`typo_injector`).  No extra setup is needed here.
+    """
+    snippet, seed, args_dict = payload
 
     rng = random.Random(seed)
     args = argparse.Namespace(**args_dict)
@@ -145,7 +146,7 @@ def _process_split(
                 )
                 progress.update(1)
         else:
-            # Parallel path.
+            # Parallel path — each worker sets its own private cache dir.
             with ProcessPoolExecutor(max_workers=workers) as ex:
                 futures = [
                     ex.submit(_worker, (snip, seed, args_dict))

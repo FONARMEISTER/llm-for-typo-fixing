@@ -12,6 +12,10 @@ dependencies = [
   "pyspellchecker>=0.8.0",
   "tqdm>=4.65.0",
   "typos>=1.47.2",
+  # GECToR dependencies (optional — only needed for training/inference).
+  # Install with:  uv add torch transformers
+  "torch>=2.0.0",
+  "transformers>=4.35.0",
 ]
 
 [dependency-groups]

@@ -24,8 +24,18 @@ def _run(
     output_path: Optional[str] = None,
     max_samples: Optional[int] = None,
     workers: int = 1,
+    gector_model: Optional[str] = None,
 ) -> None:
-    model = make_model(model_name)
+    kwargs = {}
+    if model_name == "gector":
+        if gector_model is None:
+            print(
+                "Error: --gector-model <checkpoint_dir> is required when using --model gector",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        kwargs["model_dir"] = gector_model
+    model = make_model(model_name, **kwargs)
     print(f"Model: {model_name}")
     print(f"Dataset: {dataset_path}")
     n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
@@ -96,8 +106,15 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "--workers", type=int, default=1,
         help="Worker processes (0=auto-detect CPU count, 1=serial).",
     )
+    parser.add_argument(
+        "--gector-model", default=None, metavar="CKPT_DIR",
+        help="Path to GECToR checkpoint directory (required when --model gector).",
+    )
     args = parser.parse_args(argv)
-    _run(args.model, args.dataset, args.output, args.max_samples, args.workers)
+    _run(
+        args.model, args.dataset, args.output, args.max_samples, args.workers,
+        gector_model=args.gector_model,
+    )
 
 
 if __name__ == "__main__":

@@ -56,11 +56,18 @@ def _eval_runner_thread(
     model_name: str,
     max_samples: Optional[int],
     random_sample: bool,
+    gector_model_dir: Optional[str] = None,
 ) -> None:
     """Run evaluation in a background thread, updating ``_running_evals``.
 
     When ``random_sample`` is True and ``max_samples`` is set, samples are
     shuffled before selection rather than taking the first N.
+
+    Parameters
+    ----------
+    gector_model_dir:
+        Path to a GECToR checkpoint directory.  Required when
+        ``model_name == "gector"``.
     """
     # Disable parso disk cache in this thread (belt and suspenders).
     try:
@@ -86,7 +93,17 @@ def _eval_runner_thread(
         with _eval_lock:
             _running_evals[run_id]["total"] = len(error_samples)
 
-        model = make_model(model_name)
+        # Build model kwargs — GECToR needs model_dir.
+        model_kwargs: dict = {}
+        if model_name == "gector":
+            if not gector_model_dir:
+                raise ValueError(
+                    "GECToR requires a checkpoint directory.  "
+                    "Enter the path in the 'GECToR model dir' field."
+                )
+            model_kwargs["model_dir"] = gector_model_dir
+
+        model = make_model(model_name, **model_kwargs)
         results: List[Any] = []
 
         for idx, (sample, orig_idx) in enumerate(error_samples):
@@ -298,6 +315,7 @@ class _Handler(SimpleHTTPRequestHandler):
         model_name = params.get("model", "").strip()
         max_samples_raw = params.get("max_samples", None)
         random_sample = params.get("random_sample", True)
+        gector_model_dir = params.get("gector_model_dir", "").strip() or None
 
         # Validate dataset path (must be within DATA_DIR).
         if not dataset_path:
@@ -311,6 +329,11 @@ class _Handler(SimpleHTTPRequestHandler):
         # Validate model.
         if model_name not in MODEL_REGISTRY:
             self.send_error(400, f"Unknown model: {model_name}")
+            return
+
+        # GECToR requires a checkpoint directory.
+        if model_name == "gector" and not gector_model_dir:
+            self.send_error(400, "GECToR requires 'gector_model_dir' parameter")
             return
 
         # Parse max_samples.
@@ -338,7 +361,8 @@ class _Handler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=_eval_runner_thread,
-            args=(run_id, abs_dataset, model_name, max_samples, random_sample),
+            args=(run_id, abs_dataset, model_name, max_samples, random_sample,
+                  gector_model_dir),
             daemon=True,
         )
         thread.start()
