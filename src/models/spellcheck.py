@@ -20,6 +20,8 @@ except ImportError:
 class SpellCheckerFixer(NameFixer):
     """Baseline: spellcheck each word inside an identifier."""
 
+    name = "spellcheck"
+
     def __init__(self, language: str = "en") -> None:
         if SpellChecker is None:
             raise ImportError(

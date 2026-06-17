@@ -8,13 +8,16 @@ metrics.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import asdict, dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from Levenshtein import distance as _lev_distance
+from tqdm import tqdm
 
 from .identifier_utils import apply_jedi_rename, extract_renameable_identifiers
-from .models import NameFixer
+from .models import NameFixer, make_model
 
 
 # --------------------------------------------------------------------------- #
@@ -210,8 +213,20 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
+def _eval_worker(payload: Tuple[dict, int, str]) -> SampleResult:
+    """Process one sample in a child process — free function for pickling."""
+    sample, index, model_name = payload
+
+    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
+    import jedi.settings
+    jedi.settings.cache_directory = None
+
+    model = make_model(model_name)
+    return _process_sample(sample, index, model)
+
+
 # --------------------------------------------------------------------------- #
-# Top-level entry point
+# Top-level entry points
 # --------------------------------------------------------------------------- #
 
 
@@ -220,26 +235,65 @@ def evaluate(
     dataset_path: str,
     *,
     max_samples: Optional[int] = None,
+    workers: int = 1,
 ) -> Tuple[List[SampleResult], EvalMetrics]:
-    """Run the full evaluation pipeline.
+    """Run the full evaluation pipeline, optionally in parallel.
 
     Args:
-        model: A :class:`NameFixer` instance.
+        model: A :class:`NameFixer` instance (used only for ``workers=1``).
         dataset_path: Path to a JSONL dataset.
         max_samples: Limit to first N error samples (useful for fast tests).
+        workers: Number of worker processes.  ``1`` uses the calling process
+            (no pickling overhead).  ``0`` auto-detects CPU count.
 
     Returns:
         ``(per_sample_results, aggregate_metrics)``.
     """
+    # Load and filter samples.
     all_samples = list(_iter_jsonl(dataset_path))
-    results: List[SampleResult] = []
+    error_samples = [
+        (s, i) for i, s in enumerate(all_samples) if s.get("has_errors", False)
+    ]
+    if max_samples is not None:
+        error_samples = error_samples[:max_samples]
 
-    for i, sample in enumerate(all_samples):
-        if not sample.get("has_errors", False):
-            continue
-        results.append(_process_sample(sample, i, model))
-        if max_samples is not None and len(results) >= max_samples:
-            break
+    # Auto-detect worker count.
+    n_workers = workers if workers > 0 else os.cpu_count() or 1
+
+    if n_workers <= 1:
+        # Serial path — no pickling overhead, simpler debugging.
+        results: List[SampleResult] = []
+        for sample, idx in tqdm(error_samples, desc="Evaluating", unit="sample"):
+            results.append(_process_sample(sample, idx, model))
+    else:
+        # Parallel path — each worker creates its own model copy.
+        model_name = model.name  # type: ignore[attr-defined]
+        results = _evaluate_parallel(error_samples, model_name, n_workers)
 
     metrics = compute_metrics(results)
     return results, metrics
+
+
+def _evaluate_parallel(
+    error_samples: List[Tuple[dict, int]],
+    model_name: str,
+    n_workers: int,
+) -> List[SampleResult]:
+    """Evaluate samples in parallel using :class:`ProcessPoolExecutor`."""
+    payloads = [(s, idx, model_name) for s, idx in error_samples]
+    results: List[SampleResult] = []
+
+    with ProcessPoolExecutor(max_workers=n_workers) as ex:
+        futures = {ex.submit(_eval_worker, p): p for p in payloads}
+        with tqdm(total=len(payloads), desc="Evaluating (parallel)", unit="sample") as pbar:
+            for future in as_completed(futures):
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    sample, idx = futures[future][:2]
+                    tqdm.write(f"Worker failed for sample {idx}: {exc}")
+                pbar.update(1)
+
+    # Restore original ordering (as_completed yields in finish order).
+    results.sort(key=lambda r: r.sample_index)
+    return results

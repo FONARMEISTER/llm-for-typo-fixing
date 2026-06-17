@@ -13,7 +13,12 @@ class NameFixer(ABC):
     identifier names found in that code.  It returns a dictionary mapping
     corrupted names to their suggested corrections.  Names that the model
     considers correct should be omitted from the result dictionary.
+
+    Subclasses should set :attr:`name` to a registry key for parallel
+    evaluation (workers re-create the model by name).
     """
+
+    name: str = "unknown"
 
     @abstractmethod
     def fix_names(self, code: str, names: List[str]) -> Dict[str, str]:

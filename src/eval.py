@@ -23,14 +23,19 @@ def _run(
     dataset_path: str,
     output_path: Optional[str] = None,
     max_samples: Optional[int] = None,
+    workers: int = 1,
 ) -> None:
     model = make_model(model_name)
     print(f"Model: {model_name}")
     print(f"Dataset: {dataset_path}")
+    n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
+    print(f"Workers: {n_workers}")
     if max_samples:
         print(f"Max samples: {max_samples}")
 
-    results, metrics = evaluate(model, dataset_path, max_samples=max_samples)
+    results, metrics = evaluate(
+        model, dataset_path, max_samples=max_samples, workers=workers,
+    )
 
     # Print metrics to stdout.
     print()
@@ -84,8 +89,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument(
         "--max-samples", type=int, default=None, help="Limit to first N error samples."
     )
+    parser.add_argument(
+        "--workers", type=int, default=1,
+        help="Worker processes (0=auto-detect CPU count, 1=serial).",
+    )
     args = parser.parse_args(argv)
-    _run(args.model, args.dataset, args.output, args.max_samples)
+    _run(args.model, args.dataset, args.output, args.max_samples, args.workers)
 
 
 if __name__ == "__main__":

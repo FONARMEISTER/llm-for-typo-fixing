@@ -115,18 +115,24 @@ wrap them similarly.
 
 ## How the harness works
 
-- `evaluate(model, dataset_path, max_samples)`: reads JSONL, processes
+- `evaluate(model, dataset_path, max_samples, workers)`: reads JSONL, processes
   only `has_errors=true` samples.
 - Per sample: extracts identifiers from corrupted code, calls
   `model.fix_names(code, names)`, applies each suggested fix via Jedi rename
   (re-extracting positions after each rename because offsets may shift).
 - Metrics: exact match, identifier-level precision/recall/F1, normalised
   Levenshtein edit distance (via `Levenshtein` package).
+- Parallel: ``workers=0`` auto-detects CPU count; workers re-create the model
+  by calling ``make_model(model.name)``.  The serial path (``workers=1``) avoids
+  pickling overhead and is the default.
+- Workers disable ``jedi.settings.cache_directory`` to prevent parso cache
+  corruption (same as in dataset building).
 
 ## Model interface
 
 ```python
 class NameFixer(ABC):
+    name: str = "unknown"  # registry key for parallel worker re-creation
     def fix_names(self, code: str, names: list[str]) -> dict[str, str]:
         """Return {corrupted_name: fixed_name} for identifiers to fix.
         Names NOT in the result are treated as already correct."""
@@ -134,7 +140,8 @@ class NameFixer(ABC):
 
 To add a new model:
 1. Create `src/models/<name>.py` with a class inheriting `NameFixer`.
-2. Register a factory in `src/models/__init__.py` → `MODEL_REGISTRY`.
+2. Set ``name = "your-model"`` on the class.
+3. Register a factory in `src/models/__init__.py` → `MODEL_REGISTRY`.
 
 ## Spellchecker baseline
 

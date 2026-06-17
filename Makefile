@@ -60,11 +60,12 @@ build-codealpaca:
 # Build all datasets (demo, mbpp, magicoder, codealpaca).
 build-all: build-demo build-mbpp build-magicoder build-codealpaca
 
-# Run evaluation with the spellchecker baseline on the demo dataset.
+# Run evaluation with the spellchecker baseline (parallel by default).
 eval:
 	uv run python -m src.eval \
 		--model spellcheck \
-		--dataset data/demo.jsonl
+		--dataset data/demo.jsonl \
+		--workers $(WORKERS)
 
 # Start the dataset viewer (opens browser).
 viewer:
