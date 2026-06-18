@@ -78,7 +78,7 @@ class GECToRConfig:
         Weight of the error-detection loss relative to the tag loss.
     """
 
-    encoder_model: str = "roberta-base"
+    encoder_model: str = "microsoft/codebert-base"
     vocab_size: int = 3          # will be overwritten from actual vocab
     hidden_dropout: float = 0.1
     detect_weight: float = 0.5

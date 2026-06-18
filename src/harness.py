@@ -229,13 +229,28 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
+# Track whether this worker process has already initialised its own Jedi cache.
+_worker_cache_initialised = False
+
+
 def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
     """Process one sample in a child process — free function for pickling.
 
-    The per-process Jedi cache isolation is handled at module-import time by
-    :mod:`identifier_utils` (imported at the top of this module).  No extra
-    setup is needed here.
+    On Linux the default ``fork`` start method means child processes inherit
+    the parent's ``jedi.settings.cache_directory``.  All workers would share
+    the same path, corrupting each other's pickle files ("Ran out of input",
+    "invalid load key").  To prevent this, each worker re-initialises the
+    Jedi cache to a unique temp directory on its first call.
     """
+    global _worker_cache_initialised
+    if not _worker_cache_initialised:
+        import tempfile
+        import pathlib
+        import jedi.settings
+        _worker_cache_dir = tempfile.mkdtemp(prefix="jedi_eval_worker_")
+        jedi.settings.cache_directory = pathlib.Path(_worker_cache_dir)
+        _worker_cache_initialised = True
+
     sample, index, model_name, model_kwargs = payload
 
     model = make_model(model_name, **model_kwargs)

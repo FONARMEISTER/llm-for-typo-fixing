@@ -32,7 +32,11 @@ from .tokenize_code import (
     align_to_subwords,
     first_subword_mask,
 )
-from .vocab import KEEP_IDX, DELETE_IDX, UNK_IDX, is_replace_tag, replacement_token
+from .vocab import (
+    KEEP_IDX, DELETE_IDX, UNK_IDX,
+    is_replace_tag, replacement_token,
+    is_char_edit_tag, apply_char_edit,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -177,10 +181,15 @@ def iterative_correct(
         # Collect replacements for NAME tokens only.
         iter_fixes: Dict[str, str] = {}
         for ct, tag in zip(code_tokens, tags):
-            if ct.is_name and is_replace_tag(tag):
+            if not ct.is_name:
+                continue
+            new_name: Optional[str] = None
+            if is_replace_tag(tag):
                 new_name = replacement_token(tag)
-                if new_name != ct.text:
-                    iter_fixes[ct.text] = new_name
+            elif is_char_edit_tag(tag):
+                new_name = apply_char_edit(ct.text, tag)
+            if new_name is not None and new_name != ct.text:
+                iter_fixes[ct.text] = new_name
 
         if not iter_fixes:
             break  # Converged.
@@ -189,10 +198,16 @@ def iterative_correct(
         # The harness will later use Jedi for scope-aware renaming.
         new_tokens: List[str] = []
         for ct, tag in zip(code_tokens, tags):
-            if ct.is_name and is_replace_tag(tag):
-                new_tokens.append(replacement_token(tag))
-            else:
-                new_tokens.append(ct.text)
+            if ct.is_name:
+                if is_replace_tag(tag):
+                    new_tokens.append(replacement_token(tag))
+                    continue
+                if is_char_edit_tag(tag):
+                    edited = apply_char_edit(ct.text, tag)
+                    if edited is not None:
+                        new_tokens.append(edited)
+                        continue
+            new_tokens.append(ct.text)
 
         # Reconstruct source preserving original whitespace as much as
         # possible by replacing token text in-place.

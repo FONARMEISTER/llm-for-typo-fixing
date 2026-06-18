@@ -150,6 +150,44 @@ To add a new model:
 2. Set ``name = "your-model"`` on the class.
 3. Register a factory in `src/models/__init__.py` → `MODEL_REGISTRY`.
 
+## GECToR architecture
+
+- **Encoder**: `microsoft/codebert-base` (default; any HuggingFace encoder works).
+- **Heads**: `tag_head` (Linear → vocab_size) + `detect_head` (Linear → 2).
+- **Dual loss**: tag CE + detect CE + optional REINFORCE Levenshtein auxiliary.
+- **Iterative inference**: model applies tags, re-encodes the corrected code,
+  and repeats until convergence or `max_iter` passes.
+
+### Tag vocabulary modes
+
+**Character-edit mode** (default, `--vocab-type char-edit`):
+- Static vocabulary (~4000 tags), data-independent.
+- Generalises to **any identifier** — including ones never seen during training.
+- Five operation families mirror `make_typo()`:
+  - `$SWAP_<pos>` — swap characters at positions *pos* and *pos+1*
+  - `$DEL_<pos>` — delete the character at *pos*
+  - `$INS_<pos>_<char>` — insert *char* before position *pos*
+  - `$SUB_<pos>_<char>` — substitute the character at *pos* with *char*
+  - `$CASE_<pos>` — flip the case of the character at *pos*
+- `compute_char_edit_tag(corrupted, original)` determines the tag;
+  `apply_char_edit(token, tag)` applies it at inference time.
+- One tag per code token per iteration; multi-typo names are fixed across
+  successive iterative passes.
+
+**Replace mode** (legacy, `--vocab-type replace`):
+- `$REPLACE_<name>` tags built from training data.
+- Cannot generalise to unseen identifiers (OOV problem).
+
+### Training
+
+```bash
+make train-gector                # train on MBPP with defaults
+make train-gector GECTOR_ENCODER=microsoft/codebert-base  # explicit
+make train-gector-all            # train on all datasets merged
+```
+
+CLI flags: `--vocab-type`, `--lev-weight`, `--detect-weight`, etc.
+
 ## Spellchecker baseline
 
 - Uses `pyspellchecker` (PyPI: `pyspellchecker`).

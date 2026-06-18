@@ -37,7 +37,7 @@ from typing import Dict, List, Union
 import torch
 
 from ..typo_datasets import BaseTypoDataset
-from .vocab import TagVocab, KEEP_IDX, replace_tag
+from .vocab import TagVocab, KEEP_IDX
 from .tokenize_code import (
     code_tokens_from_source,
     align_to_subwords,
@@ -139,8 +139,7 @@ class GECToRDataset(BaseTypoDataset):
         for i, ct in enumerate(code_toks):
             if ct.is_name and ct.text in fix_map:
                 orig = fix_map[ct.text]
-                tag = replace_tag(orig)
-                code_tag_labels[i] = self.vocab.tag2idx(tag)
+                code_tag_labels[i] = self.vocab.tag_for_edit(ct.text, orig)
                 code_detect_labels[i] = 1
 
         # Expand to subword level: first subword gets the label, rest get LABEL_IGNORE.

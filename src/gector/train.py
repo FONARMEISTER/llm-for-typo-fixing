@@ -4,12 +4,11 @@ Usage
 -----
 ::
 
-    # Build vocab from dataset, then train:
+    # Build vocab and train (char-edit vocabulary, CodeBERT encoder):
     uv run python -m src.gector.train \\
         --train  data/mbpp/train.jsonl \\
         --val    data/mbpp/validation.jsonl \\
-        --out    models/gector-roberta \\
-        --encoder roberta-base \\
+        --out    models/gector-codebert \\
         --epochs 10 \\
         --batch-size 16 \\
         --lr 2e-5
@@ -18,8 +17,8 @@ Usage
     uv run python -m src.gector.train \\
         --train  data/mbpp/train.jsonl \\
         --val    data/mbpp/validation.jsonl \\
-        --out    models/gector-roberta \\
-        --resume models/gector-roberta/checkpoint-epoch3
+        --out    models/gector-codebert \\
+        --resume models/gector-codebert/checkpoint-epoch3
 
 The script:
 1. Builds (or loads) a :class:`~src.gector.vocab.TagVocab` from the
@@ -168,7 +167,7 @@ def _levenshtein_reinforce_loss(
     device, max_length : forwarded from the training run
     """
     from .tokenize_code import code_tokens_from_source, align_to_subwords, first_subword_mask
-    from .vocab import is_replace_tag, replacement_token, KEEP_IDX
+    from .vocab import is_replace_tag, replacement_token, is_char_edit_tag, apply_char_edit, KEEP_IDX
 
     batch_size = tag_logits.size(0)
     log_probs = torch.log_softmax(tag_logits, dim=-1)  # [B, L, V]
@@ -203,8 +202,11 @@ def _levenshtein_reinforce_loss(
             tag_idx = tag_preds[pos].item()
             tag_str = vocab.idx2tag(tag_idx)
             ct = code_toks[wid]
-            if is_replace_tag(tag_str) and ct.is_name:
+            if ct.is_name and is_replace_tag(tag_str):
                 new_tokens.append(replacement_token(tag_str))
+            elif ct.is_name and is_char_edit_tag(tag_str):
+                edited = apply_char_edit(ct.text, tag_str)
+                new_tokens.append(edited if edited is not None else ct.text)
             else:
                 new_tokens.append(ct.text)
             # Accumulate log-prob for this position.
@@ -286,7 +288,7 @@ def train(
     train_paths: List[str],
     val_paths: List[str],
     out_dir: str,
-    encoder_model: str = "roberta-base",
+    encoder_model: str = "microsoft/codebert-base",
     epochs: int = 10,
     batch_size: int = 16,
     lr: float = 2e-5,
@@ -294,12 +296,14 @@ def train(
     max_length: int = 512,
     detect_weight: float = 0.5,
     lev_weight: float = 0.2,
+    lev_every_n: int = 10,
     hidden_dropout: float = 0.1,
     grad_clip: float = 1.0,
     resume: Optional[str] = None,
     device_str: Optional[str] = None,
-    num_workers: int = 0,
+    num_workers: int = 2,
     seed: int = 42,
+    vocab_type: str = "char-edit",
 ) -> None:
     """Full training run.
 
@@ -328,6 +332,11 @@ def train(
     lev_weight:
         Weight of the REINFORCE Levenshtein auxiliary loss.  Set to ``0.0``
         to disable it entirely (equivalent to the original CE-only objective).
+    lev_every_n:
+        Compute the REINFORCE Levenshtein loss only every *lev_every_n*
+        training steps.  The loss involves CPU-bound Python tokenization
+        for every sample in the batch, so running it every step is very
+        expensive.  Default is 10 (≈10× speedup vs every step).
     hidden_dropout:
         Dropout on encoder hidden states.
     grad_clip:
@@ -341,6 +350,11 @@ def train(
         DataLoader worker processes.
     seed:
         Random seed for reproducibility.
+    vocab_type:
+        Tag vocabulary mode.  ``"char-edit"`` (default) uses a static
+        character-level edit vocabulary that generalises to unseen
+        identifiers.  ``"replace"`` uses the legacy ``$REPLACE_<name>``
+        data-derived vocabulary.
     """
     torch.manual_seed(seed)
     device = _get_device(device_str)
@@ -363,8 +377,13 @@ def train(
     elif vocab_path.exists():
         print(f"Loading existing vocab from {vocab_path}")
         vocab = TagVocab.load(vocab_path)
+    elif vocab_type == "char-edit":
+        print("Building char-edit vocabulary (static, data-independent)...")
+        vocab = TagVocab.build_char_edit()
+        vocab.save(vocab_path)
+        print(f"Vocab size: {vocab.size}  (saved to {vocab_path})")
     else:
-        print("Building vocab from training data...")
+        print("Building replace vocabulary from training data...")
         vocab = TagVocab.build_from_jsonl(train_paths)
         vocab.save(vocab_path)
         print(f"Vocab size: {vocab.size}  (saved to {vocab_path})")
@@ -427,6 +446,7 @@ def train(
         model.train()
         train_loss = 0.0
         train_steps = 0
+        global_step = (epoch - 1) * len(train_loader)
         train_tp = train_fp = train_fn = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [train]", leave=False)
@@ -445,8 +465,8 @@ def train(
             )
             loss = out["loss"]
 
-            # Optional REINFORCE auxiliary loss.
-            if lev_weight > 0.0 and raw_codes:
+            # Optional REINFORCE auxiliary loss (expensive — run every N steps).
+            if lev_weight > 0.0 and raw_codes and (train_steps % lev_every_n == 0):
                 lev_loss = _levenshtein_reinforce_loss(
                     out["tag_logits"], batch["tag_labels"],
                     raw_codes, raw_fixeds,
@@ -587,7 +607,7 @@ def main(argv=None) -> None:
         help="Output directory for checkpoints and final model.",
     )
     parser.add_argument(
-        "--encoder", default="roberta-base", metavar="MODEL",
+        "--encoder", default="microsoft/codebert-base", metavar="MODEL",
         help="HuggingFace encoder model name or path.",
     )
     parser.add_argument("--epochs", type=int, default=10)
@@ -598,15 +618,21 @@ def main(argv=None) -> None:
     parser.add_argument("--detect-weight", type=float, default=0.5)
     parser.add_argument("--lev-weight", type=float, default=0.1,
                         help="Weight of the REINFORCE Levenshtein auxiliary loss (0.0 = disabled).")
+    parser.add_argument("--lev-every-n", type=int, default=10,
+                        help="Compute REINFORCE loss every N steps (default 10; reduces CPU overhead).")
     parser.add_argument("--hidden-dropout", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--resume", default=None, metavar="CKPT_DIR",
                         help="Resume training from a checkpoint directory.")
     parser.add_argument("--device", default=None,
                         help="Device string (cuda / mps / cpu).  Auto-detected if omitted.")
-    parser.add_argument("--num-workers", type=int, default=0,
-                        help="DataLoader worker processes.")
+    parser.add_argument("--num-workers", type=int, default=2,
+                        help="DataLoader worker processes (default 2).")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--vocab-type", choices=["char-edit", "replace"],
+                        default="char-edit",
+                        help="Tag vocabulary mode: 'char-edit' (generalises to "
+                             "unseen identifiers) or 'replace' (legacy whole-word).")
 
     args = parser.parse_args(argv)
 
@@ -622,12 +648,14 @@ def main(argv=None) -> None:
         max_length=args.max_length,
         detect_weight=args.detect_weight,
         lev_weight=args.lev_weight,
+        lev_every_n=args.lev_every_n,
         hidden_dropout=args.hidden_dropout,
         grad_clip=args.grad_clip,
         resume=args.resume,
         device_str=args.device,
         num_workers=args.num_workers,
         seed=args.seed,
+        vocab_type=args.vocab_type,
     )
 
 

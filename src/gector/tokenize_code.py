@@ -226,8 +226,13 @@ def apply_replace_tags(
 def name_tag_from_edit(corrupted: str, original: str) -> str:
     """Return the tag that transforms *corrupted* into *original*.
 
-    For identifier typo correction this is always ``$REPLACE_<original>``
-    (we never delete identifiers).
+    Tries a character-edit tag first (``$SWAP_*``, ``$DEL_*``, etc.).
+    Falls back to ``$REPLACE_<original>`` if no single character edit
+    can express the transformation.
     """
-    from .vocab import replace_tag
+    from .vocab import compute_char_edit_tag, replace_tag
+
+    char_tag = compute_char_edit_tag(corrupted, original)
+    if char_tag is not None:
+        return char_tag
     return replace_tag(original)

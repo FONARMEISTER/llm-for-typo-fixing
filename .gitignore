@@ -8,3 +8,5 @@ data/
 *.log
 *.err
 models/
+Makefile.pip
+requirements.txt

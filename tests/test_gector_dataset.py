@@ -5,9 +5,10 @@ Tests cover:
 - Output keys and tensor shapes
 - ``LABEL_IGNORE`` (-100) placement at special-token positions
 - ``KEEP_IDX`` / ``detect=0`` assignment for clean samples
-- Correct ``$REPLACE_*`` tag index and ``detect=1`` for corrupted tokens
+- Correct char-edit tag index and ``detect=1`` for corrupted tokens
 - Multi-file path merging
 - Empty / unparseable source safety
+- Both char-edit and replace vocabulary modes
 """
 
 from __future__ import annotations
@@ -22,7 +23,10 @@ import torch
 from transformers import AutoTokenizer
 
 from src.gector.dataset import GECToRDataset, LABEL_IGNORE
-from src.gector.vocab import TagVocab, KEEP_IDX, replace_tag
+from src.gector.vocab import (
+    TagVocab, KEEP_IDX, UNK_IDX,
+    replace_tag, compute_char_edit_tag,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -64,16 +68,14 @@ def _write_jsonl(path: str, data: List[Dict[str, Any]]) -> None:
 
 
 # ------------------------------------------------------------------ #
-# Tests
+# Tests (char-edit vocabulary — default)
 # ------------------------------------------------------------------ #
 
 class GECToRDatasetTests(unittest.TestCase):
-    """Tests for GECToRDataset using a roberta-base fast tokenizer."""
+    """Tests for GECToRDataset using a char-edit vocabulary."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        # Use codebert (roberta architecture) with the fast tokenizer,
-        # same choice as the existing data-loader tests.
         cls.tokenizer = AutoTokenizer.from_pretrained(
             "microsoft/codebert-base", use_fast=True
         )
@@ -82,8 +84,8 @@ class GECToRDatasetTests(unittest.TestCase):
         cls.mock_file = os.path.join(cls.temp_dir.name, "mock_gector.jsonl")
         _write_jsonl(cls.mock_file, MOCK_DATA)
 
-        # Vocabulary built from mock data: contains $REPLACE_calculate.
-        cls.vocab = TagVocab.build_from_jsonl([cls.mock_file])
+        # Use the char-edit vocabulary (static, data-independent).
+        cls.vocab = TagVocab.build_char_edit()
 
         cls.dataset = GECToRDataset(
             [cls.mock_file], cls.vocab, cls.tokenizer, max_length=64
@@ -187,14 +189,25 @@ class GECToRDatasetTests(unittest.TestCase):
             "Corrupted sample must have at least one detect_label=1"
         )
 
-    def test_corrupted_sample_replace_tag_index(self) -> None:
-        """The corrupted token's first subword gets $REPLACE_calculate tag index."""
-        expected_tag_idx = self.vocab.tag2idx(replace_tag("calculate"))
+    def test_corrupted_sample_char_edit_tag_index(self) -> None:
+        """The corrupted token's first subword gets the correct char-edit tag index.
+
+        'calcluate' → 'calculate': positions 4 and 5 are swapped (l↔u), so
+        the expected tag is $SWAP_4.
+        """
+        expected_tag = compute_char_edit_tag("calcluate", "calculate")
+        self.assertIsNotNone(expected_tag, "Should compute a char-edit tag for calcluate→calculate")
+        self.assertEqual(expected_tag, "$SWAP_4")
+
+        expected_tag_idx = self.vocab.tag2idx(expected_tag)
+        self.assertNotEqual(expected_tag_idx, UNK_IDX,
+                            "$SWAP_4 should be in the char-edit vocabulary")
+
         sample = self.dataset[0]
         tag_labels = sample["tag_labels"]
         self.assertTrue(
             (tag_labels == expected_tag_idx).any().item(),
-            f"Expected tag index {expected_tag_idx} ($REPLACE_calculate) in tag_labels"
+            f"Expected tag index {expected_tag_idx} ($SWAP_4) in tag_labels"
         )
 
     def test_error_count_matches_edits(self) -> None:
@@ -263,6 +276,55 @@ class GECToRDatasetTests(unittest.TestCase):
         )
         sample = ds[0]
         self.assertLessEqual(sample["input_ids"].shape[0], 8)
+
+
+# ------------------------------------------------------------------ #
+# Tests (replace vocabulary — legacy mode)
+# ------------------------------------------------------------------ #
+
+class GECToRDatasetReplaceVocabTests(unittest.TestCase):
+    """Tests for GECToRDataset using the legacy replace vocabulary."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.tokenizer = AutoTokenizer.from_pretrained(
+            "microsoft/codebert-base", use_fast=True
+        )
+
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        cls.mock_file = os.path.join(cls.temp_dir.name, "mock_gector.jsonl")
+        _write_jsonl(cls.mock_file, MOCK_DATA)
+
+        # Use the replace vocabulary (data-derived).
+        cls.vocab = TagVocab.build_from_jsonl([cls.mock_file])
+
+        cls.dataset = GECToRDataset(
+            [cls.mock_file], cls.vocab, cls.tokenizer, max_length=64
+        )
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temp_dir.cleanup()
+
+    def test_corrupted_sample_replace_tag_index(self) -> None:
+        """The corrupted token gets $REPLACE_calculate tag index."""
+        expected_tag_idx = self.vocab.tag2idx(replace_tag("calculate"))
+        sample = self.dataset[0]
+        tag_labels = sample["tag_labels"]
+        self.assertTrue(
+            (tag_labels == expected_tag_idx).any().item(),
+            f"Expected tag index {expected_tag_idx} ($REPLACE_calculate) in tag_labels"
+        )
+
+    def test_clean_sample_all_keep(self) -> None:
+        """Clean sample: every non-ignored position has KEEP_IDX."""
+        sample = self.dataset[1]
+        tag_labels = sample["tag_labels"]
+        valid_tag = tag_labels[tag_labels != LABEL_IGNORE]
+        self.assertTrue(
+            (valid_tag == KEEP_IDX).all().item(),
+            "Clean sample must have only KEEP_IDX in tag_labels"
+        )
 
 
 if __name__ == "__main__":

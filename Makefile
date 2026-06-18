@@ -9,9 +9,9 @@ DATASET ?= data/demo.jsonl
 OUTPUT ?= results.json
 
 # GECToR checkpoint directory (override with: make train-gector GECTOR_MODEL=...)
-GECTOR_MODEL ?= models/gector-roberta
-# Encoder backbone (override with: make train-gector GECTOR_ENCODER=microsoft/codebert-base)
-GECTOR_ENCODER ?= roberta-base
+GECTOR_MODEL ?= models/gector-codebert
+# Encoder backbone (override with: make train-gector GECTOR_ENCODER=...)
+GECTOR_ENCODER ?= microsoft/codebert-base
 GECTOR_EPOCHS ?= 10
 GECTOR_BATCH  ?= 16
 GECTOR_LR     ?= 2e-5
