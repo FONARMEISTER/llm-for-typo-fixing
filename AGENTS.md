@@ -216,6 +216,21 @@ of worker count.
 - The project uses Jupytext: `.ipynb` + `.py` pairs — edit the `.py` file,
   ignore the `.ipynb`.
 
+## Commit message conventions
+
+- **Class names** in square brackets: ``[LLMAPIFixer]``, ``[NameFixer]``.
+- **Functions, methods, modules, files** in backticks with ``()``:
+  `` `fix_names()` ``, `` `_process_sample()` ``, `` `evaluate()` ``.
+- Qualify method with class when ambiguous: `` `LLMAPIFixer.from_preset()` ``.
+- Always parentheses after function/method name.
+- **Don't** append test-count footnotes (e.g. «All 57 tests pass») — every
+  commit is expected to keep the suite green unless stated otherwise.
+- **Don't** repeat in prose what the diff already says.  Focus on *why* and
+  *impact*: what changed behaviourally, what edge case was fixed, what new
+  capability is available.  Write for a future reader (yourself, another
+  agent, or a teammate) who is skimming ``git log`` to understand the
+  project's history.
+
 ## Dependencies (pyproject.toml)
 
 - `jedi>=0.20.0` — scope-aware Python refactoring.
