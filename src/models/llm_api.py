@@ -126,6 +126,9 @@ class LLMAPIFixer(NameFixer):
         Sampling temperature (0 = deterministic).
     system_prompt:
         System-level instruction string.
+    max_parallel_requests:
+        Maximum concurrent API requests.  Set to > 1 for cloud APIs
+        (OpenAI, etc.) to saturate rate limits.  Default 1 (serial).
     timeout:
         HTTP request timeout in seconds.
     """
@@ -140,6 +143,7 @@ class LLMAPIFixer(NameFixer):
         max_tokens: int = 1024,
         temperature: float = 0.0,
         system_prompt: Optional[str] = None,
+        max_parallel_requests: int = 1,
         timeout: float = 120.0,
     ) -> None:
         self._model = model
@@ -147,6 +151,7 @@ class LLMAPIFixer(NameFixer):
         self._temperature = temperature
         self._system_prompt = system_prompt or _SYSTEM_PROMPT
         self._timeout = timeout
+        self.max_parallel_requests = max_parallel_requests
 
         api_key = None
         if api_key_env:

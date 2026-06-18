@@ -42,8 +42,14 @@ def _run(
     model = make_model(model_name, **model_kwargs)
     print(f"Model: {display_name}")
     print(f"Dataset: {dataset_path}")
-    n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
-    print(f"Workers: {n_workers}")
+
+    max_parallel = getattr(model, "max_parallel_requests", 1)
+    if max_parallel > 1:
+        print(f"Parallelism: {max_parallel} threads (API concurrency)")
+    else:
+        n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
+        print(f"Workers: {n_workers}")
+
     if max_samples:
         print(f"Max samples: {max_samples}")
 

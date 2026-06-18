@@ -4,12 +4,13 @@
 # and which model / parameters to use.
 #
 # Fields:
-#   base_url       - OpenAI-compatible API base URL.
-#   model          - Model name as known to the API.
-#   api_key_env    - Environment variable to read the API key from, or "" for no auth.
-#   max_tokens     - Maximum completion tokens (must be enough for reasoning + JSON).
-#   temperature    - Sampling temperature (0 = greedy).
-#   system_prompt  - System-level instruction (optional; a sensible default will be used if omitted).
+#   base_url              - OpenAI-compatible API base URL.
+#   model                 - Model name as known to the API.
+#   api_key_env           - Environment variable to read the API key from, or "" for no auth.
+#   max_tokens            - Maximum completion tokens (must cover reasoning + JSON output).
+#   temperature           - Sampling temperature (0 = greedy).
+#   max_parallel_requests - Maximum concurrent API requests (1 = serial; use 10–20 for cloud APIs).
+#   system_prompt         - System-level instruction (optional; a sensible default if omitted).
 
 ["gpt-4.1-nano"]
 # 7.57 ₽ / 1M вход, 30 ₽ / 1M выход, 1.89 ₽ / 1M кэш-чтение.
@@ -18,6 +19,7 @@ api_key_env = "KODIKROUTER_API_KEY"
 model = "openai/gpt-4.1-nano"
 max_tokens = 1024
 temperature = 0
+max_parallel_requests = 15
 system_prompt = "You are an expert code reviewer. Your task is to identify and fix typographical errors in Python identifiers. Return only a JSON object with corrections, no other text."
 
 ["gemma4-e2b"]

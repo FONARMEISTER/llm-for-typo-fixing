@@ -16,6 +16,7 @@ import random
 import threading
 import uuid
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
@@ -101,13 +102,36 @@ def _eval_runner_thread(
         model = make_model(model_name, **model_kwargs)
         results: List[Any] = []
 
-        for idx, (sample, orig_idx) in enumerate(error_samples):
-            # Use the original sample index so the frontend can match back.
-            result = _process_sample(sample, orig_idx, model)
-            results.append(result)
+        max_parallel = getattr(model, "max_parallel_requests", 1)
 
+        if max_parallel > 1:
+            # Thread-pool path — concurrent HTTP calls for cloud APIs.
+            with ThreadPoolExecutor(max_workers=max_parallel) as ex:
+                futures = {
+                    ex.submit(_process_sample, s, oi, model): oi
+                    for s, oi in error_samples
+                }
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        orig_idx = futures[future]
+                        print(f"[viewer] Sample {orig_idx} failed: {exc}")
+                        continue
+                    results.append(result)
+                    with _eval_lock:
+                        _running_evals[run_id]["results"] = list(results)
+            # Restore original ordering after thread-pool finish.
+            results.sort(key=lambda r: r.sample_index)
             with _eval_lock:
                 _running_evals[run_id]["results"] = list(results)
+        else:
+            # Serial path — local models or non-LLM.
+            for idx, (sample, orig_idx) in enumerate(error_samples):
+                result = _process_sample(sample, orig_idx, model)
+                results.append(result)
+                with _eval_lock:
+                    _running_evals[run_id]["results"] = list(results)
 
         # Compute final metrics.
         metrics = compute_metrics(results)
