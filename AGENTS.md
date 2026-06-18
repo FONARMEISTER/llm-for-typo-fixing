@@ -157,6 +157,27 @@ To add a new model:
 - Reassembles via `text_utils.reassemble_identifier()` (preserves case).
 - Skips names shorter than 3 characters.
 
+## Typos baseline
+
+- Uses the ``typos`` CLI tool (source-code-aware spell corrector) via subprocess.
+- Feeds the full source code to ``typos - --write-changes`` and maps corrected
+  identifiers back to the original names by position matching (±5 columns).
+- High precision, low recall (curated dictionary misses many typos).
+
+## LLM API baseline
+
+- Uses the ``openai`` Python package to call any OpenAI-compatible chat
+  completions API (local llama.cpp, llama-swap, Ollama, vLLM, OpenAI, etc.).
+- ``response_format={"type": "json_object"}`` for structured JSON output.
+- Inference presets are configured in ``config/llm_presets.toml`` (TOML).
+  Each preset specifies: ``base_url``, ``model``, ``api_key_env`` (or ``""``),
+  ``max_tokens``, ``temperature``, ``system_prompt``.
+- Supports both reasoning models (Gemma 4, Qwen 3.5 with ``reasoning_content``)
+  and classic models.
+- CLI usage: ``make eval-llm PRESET=gemma4-26b`` or:
+  ``uv run python -m src.eval --model llm_api --preset gemma4-26b --dataset data/demo.jsonl``
+- Demo results (Gemma 4 26B Q6K): 84.6% EM, 100% precision, 89.5% recall, 94.5% F1.
+
 ## Identifier splitting (text_utils)
 
 - `split_identifier("myCamel_Snake")` → `["my", "Camel", "Snake"]`.
@@ -170,6 +191,7 @@ make test              # all tests (pytest)
 make build-demo        # regenerate data/demo.jsonl
 make build-all         # regenerate all datasets (parallel by default)
 make eval              # spellchecker on demo dataset
+make eval-llm PRESET=gemma4-26b  # LLM model via llama-swap on demo dataset
 make viewer            # HTML dataset viewer at localhost:8765
 make clean             # delete generated data
 ```
@@ -197,4 +219,5 @@ of worker count.
 - `pyspellchecker>=0.8.0` — baseline spellchecker.
 - `Levenshtein>=0.27.0` — C-accelerated edit distance (not `python-Levenshtein`).
 - `datasets>=2.14.0` — HuggingFace datasets (MBPP, etc.).
-- `tqdm>=4.65.0` — progress bars.
+- `openai` — OpenAI-compatible client for LLM baseline.
+- `torch>=2.0.0`, `transformers>=4.30.0` — optional (``[ml]`` extra) for `typo_datasets.py` PyTorch data loaders.

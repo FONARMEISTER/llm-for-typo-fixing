@@ -67,6 +67,15 @@ eval:
 		--dataset data/demo.jsonl \
 		--workers $(WORKERS)
 
+# Run evaluation with an LLM model via llama-swap (serial — LLM requests are sequential anyway).
+# Usage: make eval-llm PRESET=gemma4-26b
+export PRESET=gemma4-e2b
+eval-llm:
+	uv run python -m src.eval \
+		--model llm_api \
+		--preset $(PRESET) \
+		--dataset data/demo.jsonl
+
 # Start the dataset viewer (opens browser).
 viewer:
 	uv run python -m src.viewer

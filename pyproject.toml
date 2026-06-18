@@ -9,6 +9,7 @@ dependencies = [
   "httpx[socks]>=0.28.1",
   "jedi>=0.20.0",
   "Levenshtein>=0.27.0",
+  "openai>=2.43.0",
   "pyspellchecker>=0.8.0",
   "tqdm>=4.65.0",
   "typos>=1.47.2",

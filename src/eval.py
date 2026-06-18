@@ -24,9 +24,23 @@ def _run(
     output_path: Optional[str] = None,
     max_samples: Optional[int] = None,
     workers: int = 1,
+    preset: Optional[str] = None,
+    llm_config: str = "config/llm_presets.toml",
 ) -> None:
-    model = make_model(model_name)
-    print(f"Model: {model_name}")
+    # Build model kwargs.
+    model_kwargs: dict = {}
+    display_name = model_name
+    if model_name == "llm_api":
+        if preset:
+            model_kwargs["preset"] = preset
+            model_kwargs["config_path"] = llm_config
+            display_name = f"llm_api ({preset})"
+        else:
+            print("Error: --preset is required when --model llm_api")
+            return
+
+    model = make_model(model_name, **model_kwargs)
+    print(f"Model: {display_name}")
     print(f"Dataset: {dataset_path}")
     n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
     print(f"Workers: {n_workers}")
@@ -96,8 +110,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "--workers", type=int, default=1,
         help="Worker processes (0=auto-detect CPU count, 1=serial).",
     )
+    parser.add_argument(
+        "--preset", default=None,
+        help="Inference preset name (required when --model llm_api).",
+    )
+    parser.add_argument(
+        "--llm-config", default="config/llm_presets.toml",
+        help="Path to TOML preset config file (default: config/llm_presets.toml).",
+    )
     args = parser.parse_args(argv)
-    _run(args.model, args.dataset, args.output, args.max_samples, args.workers)
+    _run(
+        args.model, args.dataset, args.output, args.max_samples, args.workers,
+        preset=args.preset, llm_config=args.llm_config,
+    )
 
 
 if __name__ == "__main__":
