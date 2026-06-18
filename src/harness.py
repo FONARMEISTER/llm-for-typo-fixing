@@ -90,6 +90,11 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
     corrupted = sample["code"]
     ground_truth = sample["fixed"]
 
+    # Suppress SyntaxWarning from parso about invalid escape sequences in
+    # real-world code.
+    import warnings
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
+
     # Extract identifiers from corrupted code.
     identifiers = extract_renameable_identifiers(corrupted)
     all_names = list(identifiers.keys())
@@ -232,6 +237,11 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
 def _eval_worker(payload: Tuple[dict, int, str]) -> SampleResult:
     """Process one sample in a child process — free function for pickling."""
     sample, index, model_name = payload
+
+    # Suppress SyntaxWarning from parso about invalid escape sequences in
+    # real-world code (e.g., "\i" in non-raw strings).
+    import warnings
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
 
     # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
     import jedi.settings

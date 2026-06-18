@@ -86,6 +86,12 @@ unpack` in type inference).  Our `inject_typos` catches all `Exception` around
 `_apply_rename` and skips the offending edit.  If you add new Jedi call sites,
 wrap them similarly.
 
+Real-world code often contains invalid escape sequences (``\i`` instead of
+``\\i`` or ``r"\i"``).  ``parso`` emits ``SyntaxWarning`` for these.
+``identifier_utils.py`` suppresses this warning at module level; dataset
+building and evaluation paths also apply the filter explicitly for
+belt-and-suspenders safety.
+
 ## Dataset format (JSONL)
 
 ```json

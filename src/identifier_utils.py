@@ -8,9 +8,15 @@ from __future__ import annotations
 
 import builtins
 import keyword
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import jedi
+
+# Real-world code often contains invalid escape sequences (e.g., "\i" in
+# non-raw strings).  parso emits SyntaxWarning for these, which is just noise
+# for our refactoring use case.
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 # Names we never treat as renameable: language keywords, soft keywords,
 # builtins, and idiomatic "fixed" names.
