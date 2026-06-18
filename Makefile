@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval viewer lint clean
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval viewer lint clean
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -57,8 +57,18 @@ build-codealpaca:
 		--seed 42 \
 		--workers $(WORKERS)
 
+# Build the GitHub Python dataset (real OSS code, test-only).
+build-github-python:
+	uv run python -m src.build_dataset \
+		--source github_python \
+		--out data/github_python/ \
+		--variants-per-snippet 1 \
+		--max-edits 2 \
+		--p-edit 0.8 \
+		--seed 42
+
 # Build all datasets (demo, mbpp, magicoder, codealpaca).
-build-all: build-demo build-mbpp build-magicoder build-codealpaca
+build-all: build-demo build-mbpp build-magicoder build-codealpaca build-github-python
 
 # Run evaluation with the spellchecker baseline (parallel by default).
 eval:
@@ -90,5 +100,6 @@ clean:
 	rm -rf data/mbpp/
 	rm -rf data/magicoder/
 	rm -rf data/codealpaca/
+	rm -rf data/github_python/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -name '*.pyc' -delete

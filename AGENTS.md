@@ -7,7 +7,8 @@ src/
   identifier_utils.py   — Shared Jedi helpers (name extraction, rename).
   text_utils.py          — CamelCase / snake_case splitting and reassembly.
   typo_injector.py       — Dataset generator: injects textual typos into Python code.
-  sources.py             — Dataset sources (demo snippets, MBPP, etc.).
+  sources.py             — Dataset sources (demo snippets, MBPP, Magicoder, CodeAlpaca,
+                            GitHub Python).
   build_dataset.py       — CLI that glues sources + injector → JSONL dataset.
   harness.py             — Evaluation pipeline: JSONL → model → Jedi rename → metrics.
   eval.py                — CLI for running evaluation.
@@ -192,6 +193,7 @@ To add a new model:
 ```bash
 make test              # all tests (pytest)
 make build-demo        # regenerate data/demo.jsonl
+make build-github-python  # build test dataset from real GitHub Python files
 make build-all         # regenerate all datasets (parallel by default)
 make eval              # spellchecker on demo dataset
 make eval-llm PRESET=gemma4-26b  # LLM model via llama-swap on demo dataset

@@ -10,11 +10,15 @@ from datasets import load_dataset
 import re
 
 
+_GITHUB_PYTHON_SEED = 2026
+
+
 _KNOWN_SPLIT_SIZES = {
     "demo": {"train": 8},
     "mbpp": {"train": 500, "validation": 90, "test": 374},
     "magicoder": {"train": 23284, "validation": 5000, "test": 10000},
     "codealpaca": {"train": 1336, "validation": 300, "test": 1000},
+    "github_python": {"test": 3000},
 }
 
 
@@ -251,12 +255,39 @@ def load_codealpaca(
         yield all_samples[i]
 
 
+def load_github_python(
+    max_samples: Optional[int] = None,
+) -> Iterator[str]:
+    """Complete Python files from real GitHub projects.
+
+    Source: ``tomekkorbak/python-github-code`` on HuggingFace (100k .py files
+    from public GitHub repos, with metadata and license info).
+
+    Uses a seeded shuffle for deterministic subset selection.
+    """
+    ds = load_dataset("tomekkorbak/python-github-code", split="train", streaming=True)
+    ds = ds.shuffle(seed=_GITHUB_PYTHON_SEED)
+
+    limit = max_samples if max_samples is not None else _KNOWN_SPLIT_SIZES["github_python"]["test"]
+
+    count = 0
+    for row in ds:
+        code = row.get("text")
+        if not code or len(code) < 20:
+            continue
+        yield code
+        count += 1
+        if count >= limit:
+            break
+
+
 SOURCES = {
     "demo": load_demo,
     "mbpp": load_mbpp,
     "code_search_net": load_code_search_net,
     "magicoder": load_magicoder,
     "codealpaca": load_codealpaca,
+    "github_python": load_github_python,
 }
 
 
