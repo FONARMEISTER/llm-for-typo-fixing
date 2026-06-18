@@ -229,16 +229,16 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
-def _eval_worker(payload: Tuple[dict, int, str]) -> SampleResult:
+def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
     """Process one sample in a child process — free function for pickling.
 
     The per-process Jedi cache isolation is handled at module-import time by
     :mod:`identifier_utils` (imported at the top of this module).  No extra
     setup is needed here.
     """
-    sample, index, model_name = payload
+    sample, index, model_name, model_kwargs = payload
 
-    model = make_model(model_name)
+    model = make_model(model_name, **model_kwargs)
     return _process_sample(sample, index, model)
 
 
@@ -285,7 +285,10 @@ def evaluate(
     else:
         # Parallel path — each worker creates its own model copy.
         model_name = model.name  # type: ignore[attr-defined]
-        results = _evaluate_parallel(error_samples, model_name, n_workers)
+        # Collect any extra constructor kwargs the model needs to be rebuilt
+        # in worker processes (e.g. GECToRFixer needs model_dir).
+        model_kwargs = getattr(model, "_init_kwargs", {})
+        results = _evaluate_parallel(error_samples, model_name, model_kwargs, n_workers)
 
     metrics = compute_metrics(results)
     return results, metrics
@@ -294,10 +297,11 @@ def evaluate(
 def _evaluate_parallel(
     error_samples: List[Tuple[dict, int]],
     model_name: str,
+    model_kwargs: dict,
     n_workers: int,
 ) -> List[SampleResult]:
     """Evaluate samples in parallel using :class:`ProcessPoolExecutor`."""
-    payloads = [(s, idx, model_name) for s, idx in error_samples]
+    payloads = [(s, idx, model_name, model_kwargs) for s, idx in error_samples]
     results: List[SampleResult] = []
 
     with ProcessPoolExecutor(max_workers=n_workers) as ex:

@@ -69,6 +69,11 @@ class GECToRFixer(NameFixer):
         self.max_length = max_length
         self.min_detect_prob = min_detect_prob
 
+        # Kwargs needed to re-create this instance in parallel worker processes.
+        self._init_kwargs: dict = {"model_dir": self.model_dir}
+        if device is not None:
+            self._init_kwargs["device"] = device
+
         # Lazy-loaded.
         self._model = None
         self._tokenizer = None

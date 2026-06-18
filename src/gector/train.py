@@ -44,6 +44,8 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from Levenshtein import distance as _lev_distance
+
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -129,6 +131,107 @@ def _accumulate_detect(
     return tp, fp, fn
 
 
+def _levenshtein_reinforce_loss(
+    tag_logits: torch.Tensor,
+    tag_labels: torch.Tensor,
+    raw_codes: List[str],
+    raw_fixeds: List[str],
+    vocab,
+    tokenizer,
+    device: torch.device,
+    max_length: int,
+) -> torch.Tensor:
+    """REINFORCE auxiliary loss using normalised Levenshtein distance as reward.
+
+    For each sample in the batch the current tag head prediction is applied to
+    the input code token-by-token (first-subword only).  The resulting string
+    is compared against the ground-truth fixed code using the normalised
+    Levenshtein distance, which acts as the *reward baseline* (lower = better,
+    so we negate it to get a reward signal).
+
+    The gradient flows through the log-probabilities of the predicted tags::
+
+        L_reinforce = mean_over_batch(
+            reward_i * sum_over_positions( -log p(tag_i | x) )
+        )
+
+    where ``reward_i = lev(predicted_i, fixed_i) / max_len``.
+
+    Parameters
+    ----------
+    tag_logits : FloatTensor [B, L, V]
+    tag_labels : LongTensor  [B, L]  — used only to find valid (non-IGNORE) positions
+    raw_codes  : List[str]  — original (corrupted) code strings, one per sample
+    raw_fixeds : List[str]  — ground-truth fixed code strings, one per sample
+    vocab      : TagVocab
+    tokenizer  : PreTrainedTokenizerFast
+    device, max_length : forwarded from the training run
+    """
+    from .tokenize_code import code_tokens_from_source, align_to_subwords, first_subword_mask
+    from .vocab import is_replace_tag, replacement_token, KEEP_IDX
+
+    batch_size = tag_logits.size(0)
+    log_probs = torch.log_softmax(tag_logits, dim=-1)  # [B, L, V]
+
+    reinforce_loss = torch.tensor(0.0, device=device)
+    n_valid = 0
+
+    for i in range(batch_size):
+        code = raw_codes[i]
+        fixed = raw_fixeds[i]
+        if not code or not fixed:
+            continue
+
+        code_toks = code_tokens_from_source(code)
+        if not code_toks:
+            continue
+
+        _, word_ids = align_to_subwords(code_toks, tokenizer, max_length=max_length)
+        fsw_mask = first_subword_mask(word_ids)
+
+        # Greedy tag prediction at first-subword positions.
+        tag_preds = tag_logits[i].argmax(dim=-1)  # [L]
+
+        # Apply predicted tags to get the corrected code token list.
+        new_tokens: List[str] = []
+        first_subword_log_prob_sum = torch.tensor(0.0, device=device)
+        n_positions = 0
+
+        for pos, (is_first, wid) in enumerate(zip(fsw_mask, word_ids)):
+            if not is_first or wid is None or wid >= len(code_toks):
+                continue
+            tag_idx = tag_preds[pos].item()
+            tag_str = vocab.idx2tag(tag_idx)
+            ct = code_toks[wid]
+            if is_replace_tag(tag_str) and ct.is_name:
+                new_tokens.append(replacement_token(tag_str))
+            else:
+                new_tokens.append(ct.text)
+            # Accumulate log-prob for this position.
+            first_subword_log_prob_sum = first_subword_log_prob_sum + log_probs[i, pos, tag_idx]
+            n_positions += 1
+
+        if n_positions == 0:
+            continue
+
+        # Reconstruct predicted code (simple space-join; good enough for Lev distance).
+        predicted_code = " ".join(new_tokens)
+
+        # Normalised Levenshtein distance ∈ [0, 1] — lower is better.
+        max_len = max(len(predicted_code), len(fixed), 1)
+        reward = float(_lev_distance(predicted_code, fixed)) / max_len
+
+        # REINFORCE: loss = reward × (−log p) summed and averaged over positions.
+        avg_log_prob = first_subword_log_prob_sum / n_positions
+        reinforce_loss = reinforce_loss + reward * (-avg_log_prob)
+        n_valid += 1
+
+    if n_valid > 0:
+        reinforce_loss = reinforce_loss / n_valid
+
+    return reinforce_loss
+
+
 def _try_plot_learning_curves(history: List[dict], out_path: Path) -> None:
     """Save ``learning_curves.png`` to *out_path* if matplotlib is available."""
     try:
@@ -190,6 +293,7 @@ def train(
     warmup_ratio: float = 0.1,
     max_length: int = 512,
     detect_weight: float = 0.5,
+    lev_weight: float = 0.2,
     hidden_dropout: float = 0.1,
     grad_clip: float = 1.0,
     resume: Optional[str] = None,
@@ -221,6 +325,9 @@ def train(
         Maximum subword sequence length.
     detect_weight:
         Weight of the detection loss relative to the tag loss.
+    lev_weight:
+        Weight of the REINFORCE Levenshtein auxiliary loss.  Set to ``0.0``
+        to disable it entirely (equivalent to the original CE-only objective).
     hidden_dropout:
         Dropout on encoder hidden states.
     grad_clip:
@@ -324,6 +431,9 @@ def train(
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [train]", leave=False)
         for batch in pbar:
+            # raw_code / raw_fixed are plain Python lists — keep them off the device.
+            raw_codes: List[str] = batch.pop("raw_code", [])
+            raw_fixeds: List[str] = batch.pop("raw_fixed", [])
             batch = {k: v.to(device) for k, v in batch.items()}
             optimizer.zero_grad()
 
@@ -334,6 +444,16 @@ def train(
                 detect_labels=batch["detect_labels"],
             )
             loss = out["loss"]
+
+            # Optional REINFORCE auxiliary loss.
+            if lev_weight > 0.0 and raw_codes:
+                lev_loss = _levenshtein_reinforce_loss(
+                    out["tag_logits"], batch["tag_labels"],
+                    raw_codes, raw_fixeds,
+                    vocab, tokenizer, device, max_length,
+                )
+                loss = loss + lev_weight * lev_loss
+
             loss.backward()
 
             if grad_clip > 0:
@@ -363,6 +483,8 @@ def train(
 
         with torch.no_grad():
             for batch in tqdm(val_loader, desc=f"Epoch {epoch}/{epochs} [val]", leave=False):
+                batch.pop("raw_code", None)
+                batch.pop("raw_fixed", None)
                 batch = {k: v.to(device) for k, v in batch.items()}
                 out = model(
                     input_ids=batch["input_ids"],
@@ -474,6 +596,8 @@ def main(argv=None) -> None:
     parser.add_argument("--warmup-ratio", type=float, default=0.1)
     parser.add_argument("--max-length", type=int, default=512)
     parser.add_argument("--detect-weight", type=float, default=0.5)
+    parser.add_argument("--lev-weight", type=float, default=0.1,
+                        help="Weight of the REINFORCE Levenshtein auxiliary loss (0.0 = disabled).")
     parser.add_argument("--hidden-dropout", type=float, default=0.1)
     parser.add_argument("--grad-clip", type=float, default=1.0)
     parser.add_argument("--resume", default=None, metavar="CKPT_DIR",
@@ -497,6 +621,7 @@ def main(argv=None) -> None:
         warmup_ratio=args.warmup_ratio,
         max_length=args.max_length,
         detect_weight=args.detect_weight,
+        lev_weight=args.lev_weight,
         hidden_dropout=args.hidden_dropout,
         grad_clip=args.grad_clip,
         resume=args.resume,

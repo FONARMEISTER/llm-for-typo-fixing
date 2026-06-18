@@ -160,6 +160,10 @@ class GECToRDataset(BaseTypoDataset):
             "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
             "tag_labels": torch.tensor(tag_labels, dtype=torch.long),
             "detect_labels": torch.tensor(detect_labels, dtype=torch.long),
+            # Raw strings kept for sequence-level auxiliary losses in train.py.
+            # They are plain Python strings, not tensors — collate_fn handles them.
+            "raw_code": sample["code"],
+            "raw_fixed": sample.get("fixed") or sample["code"],
         }
 
     def _empty_item(self) -> Dict[str, torch.Tensor]:
@@ -174,6 +178,8 @@ class GECToRDataset(BaseTypoDataset):
             "attention_mask": torch.tensor([1, 1], dtype=torch.long),
             "tag_labels": torch.tensor([LABEL_IGNORE, LABEL_IGNORE], dtype=torch.long),
             "detect_labels": torch.tensor([LABEL_IGNORE, LABEL_IGNORE], dtype=torch.long),
+            "raw_code": "",
+            "raw_fixed": "",
         }
 
 
@@ -183,9 +189,9 @@ class GECToRDataset(BaseTypoDataset):
 
 
 def collate_fn(
-    batch: List[Dict[str, torch.Tensor]],
+    batch: List[Dict],
     pad_token_id: int = 1,
-) -> Dict[str, torch.Tensor]:
+) -> Dict:
     """Pad a batch of variable-length items to the same length.
 
     Parameters
@@ -198,7 +204,9 @@ def collate_fn(
 
     Returns
     -------
-    dict with the same keys, each value a 2-D tensor ``[batch, max_seq_len]``.
+    dict with tensor keys (``input_ids``, ``attention_mask``, ``tag_labels``,
+    ``detect_labels``) each padded to ``[batch, max_seq_len]``, plus plain
+    list keys ``raw_code`` and ``raw_fixed`` for auxiliary losses.
     """
     max_len = max(item["input_ids"].size(0) for item in batch)
 
@@ -208,6 +216,9 @@ def collate_fn(
         "tag_labels": [],
         "detect_labels": [],
     }
+
+    raw_codes: List[str] = []
+    raw_fixeds: List[str] = []
 
     for item in batch:
         seq_len = item["input_ids"].size(0)
@@ -229,8 +240,13 @@ def collate_fn(
             torch.cat([item["detect_labels"],
                        torch.full((pad_len,), LABEL_IGNORE, dtype=torch.long)])
         )
+        raw_codes.append(item.get("raw_code", ""))
+        raw_fixeds.append(item.get("raw_fixed", ""))
 
-    return {k: torch.stack(v) for k, v in padded.items()}
+    result = {k: torch.stack(v) for k, v in padded.items()}
+    result["raw_code"] = raw_codes    # List[str] — not a tensor
+    result["raw_fixed"] = raw_fixeds  # List[str] — not a tensor
+    return result
 
 
 def make_collate_fn(pad_token_id: int):
