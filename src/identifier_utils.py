@@ -56,7 +56,13 @@ def extract_renameable_identifiers(
         if is_protected_name(name):
             continue
 
-        if n.type not in ("statement", "function", "class", "param"):
+        # ``n.type`` triggers Jedi's full type-inference chain, which may
+        # follow imports into installed venv packages and hit internal
+        # parso-cache KeyError bugs.  Silently skip those names.
+        try:
+            if n.type not in ("statement", "function", "class", "param"):
+                continue
+        except Exception:
             continue
 
         line = n.line

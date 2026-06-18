@@ -312,7 +312,17 @@ def inject_typos(
     rng = rng or random.Random()
 
     # ---- Identifier corruption ----
-    def_positions = _extract_renameable_identifiers(source)
+    try:
+        def_positions = _extract_renameable_identifiers(source)
+    except Exception:
+        # Jedi internal error (parser cache corruption, type-inference
+        # edge case in third-party imports, etc.) — return clean.
+        return CorruptionResult(
+            original=source,
+            corrupted=source,
+            edits=[],
+            corrupted_comments=[],
+        )
 
     # Group names: pick which NAMES to corrupt (not individual positions).
     candidate_names = sorted(def_positions.keys())
@@ -346,7 +356,12 @@ def inject_typos(
     applied_names: set = set()
     for original_name, typo_name, _unused_positions in chosen_renames:
         # Re-extract from the current source to get correct coordinates.
-        fresh = _extract_renameable_identifiers(corrupted)
+        # Jedi may fail on already-corrupted code (internal cache bugs,
+        # type-inference edge cases) — skip the rename if it does.
+        try:
+            fresh = _extract_renameable_identifiers(corrupted)
+        except Exception:
+            continue
         if original_name not in fresh:
             continue
         line, col = rng.choice(fresh[original_name])
@@ -368,7 +383,10 @@ def inject_typos(
     for original_name, typo_name, positions in chosen_renames:
         if original_name not in applied_names:
             continue
-        count = _count_name_occurrences(source, original_name)
+        try:
+            count = _count_name_occurrences(source, original_name)
+        except Exception:
+            count = len(positions)
         edits.append(
             Edit(
                 original_name=original_name,

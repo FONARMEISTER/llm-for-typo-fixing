@@ -82,15 +82,17 @@ assume a single file.  Our `apply_jedi_rename()` reflects this (returns
 ### Internal Jedi errors on edge cases
 
 Some code triggers internal Jedi bugs (e.g., `ValueError: too many values to
-unpack` in type inference).  Our `inject_typos` catches all `Exception` around
-`_apply_rename` and skips the offending edit.  If you add new Jedi call sites,
-wrap them similarly.
+unpack` in type inference, ``KeyError`` in the parso parser cache when
+resolving ``from X import *`` through installed packages).
+``inject_typos()`` now catches all ``Exception`` around **every** Jedi call
+site (initial extraction, per-rename re-extraction, occurrence counting) and
+skips the offending snippet/rename gracefully.  If you add new Jedi call
+sites, wrap them similarly.
 
 Real-world code often contains invalid escape sequences (``\i`` instead of
 ``\\i`` or ``r"\i"``).  ``parso`` emits ``SyntaxWarning`` for these.
 ``identifier_utils.py`` suppresses this warning at module level; dataset
-building and evaluation paths also apply the filter explicitly for
-belt-and-suspenders safety.
+building and evaluation paths also apply the filter explicitly.
 
 ## Dataset format (JSONL)
 
