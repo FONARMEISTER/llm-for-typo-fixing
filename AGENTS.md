@@ -174,6 +174,9 @@ To add a new model:
   ``max_tokens``, ``temperature``, ``system_prompt``.
 - Supports both reasoning models (Gemma 4, Qwen 3.5 with ``reasoning_content``)
   and classic models.
+- Exponential backoff retry on transient errors (429, 5xx, timeout,
+  connection): up to 5 retries (configurable via ``max_retries`` and
+  ``retry_base_delay``).  Respects ``Retry-After`` headers.
 - CLI usage: ``make eval-llm PRESET=gemma4-26b`` or:
   ``uv run python -m src.eval --model llm_api --preset gemma4-26b --dataset data/demo.jsonl``
 - Demo results (Gemma 4 26B Q6K): 84.6% EM, 100% precision, 89.5% recall, 94.5% F1.
