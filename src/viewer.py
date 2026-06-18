@@ -29,15 +29,20 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "viewer_template.html"
 # Support both `python -m src.viewer` and `python src/viewer.py`.
 try:
     from .models import MODEL_REGISTRY, make_model
+    from .models.llm_api import _load_presets
     from .harness import _iter_jsonl, _process_sample, compute_metrics
 except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent))
     from models import MODEL_REGISTRY, make_model  # type: ignore[no-redef]
+    from models.llm_api import _load_presets  # type: ignore[no-redef]
     from harness import _iter_jsonl, _process_sample, compute_metrics  # type: ignore[no-redef]
 
 # Load the HTML template at import time.
 _HTML_PAGE = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+# Default preset config path.
+_DEFAULT_PRESET_CONFIG = str(PROJECT_ROOT / "config" / "llm_presets.toml")
 
 
 # --------------------------------------------------------------------------- #
@@ -56,6 +61,8 @@ def _eval_runner_thread(
     model_name: str,
     max_samples: Optional[int],
     random_sample: bool,
+    preset: Optional[str] = None,
+    llm_config: str = "config/llm_presets.toml",
 ) -> None:
     """Run evaluation in a background thread, updating ``_running_evals``.
 
@@ -86,7 +93,12 @@ def _eval_runner_thread(
         with _eval_lock:
             _running_evals[run_id]["total"] = len(error_samples)
 
-        model = make_model(model_name)
+        # Build model kwargs for llm_api.
+        model_kwargs: dict = {}
+        if model_name == "llm_api" and preset:
+            model_kwargs["preset"] = preset
+            model_kwargs["config_path"] = llm_config
+        model = make_model(model_name, **model_kwargs)
         results: List[Any] = []
 
         for idx, (sample, orig_idx) in enumerate(error_samples):
@@ -147,6 +159,11 @@ class _Handler(SimpleHTTPRequestHandler):
         # List available models.
         if path == "/api/models":
             self._serve_json(self._list_models())
+            return
+
+        # List available LLM presets.
+        if path == "/api/presets":
+            self._serve_json(self._list_presets())
             return
 
         # Poll eval progress.
@@ -239,6 +256,14 @@ class _Handler(SimpleHTTPRequestHandler):
         """Return available model names from the registry."""
         return list(MODEL_REGISTRY.keys())
 
+    def _list_presets(self):
+        """Return available LLM preset names from the config file."""
+        try:
+            presets = _load_presets(_DEFAULT_PRESET_CONFIG)
+            return sorted(presets.keys())
+        except Exception:
+            return []
+
     # ---- JSONL serving -------------------------------------------------------
 
     def _serve_jsonl(self, abs_path: str):
@@ -298,6 +323,8 @@ class _Handler(SimpleHTTPRequestHandler):
         model_name = params.get("model", "").strip()
         max_samples_raw = params.get("max_samples", None)
         random_sample = params.get("random_sample", True)
+        preset = params.get("preset", None)
+        llm_config = params.get("llm_config", _DEFAULT_PRESET_CONFIG)
 
         # Validate dataset path (must be within DATA_DIR).
         if not dataset_path:
@@ -312,6 +339,21 @@ class _Handler(SimpleHTTPRequestHandler):
         if model_name not in MODEL_REGISTRY:
             self.send_error(400, f"Unknown model: {model_name}")
             return
+
+        # Validate preset if model is llm_api.
+        if isinstance(preset, str):
+            preset = preset.strip()
+        if model_name == "llm_api" and not preset:
+            # Auto-select first preset.
+            try:
+                presets = _load_presets(llm_config)
+                if presets:
+                    preset = sorted(presets.keys())[0]
+            except Exception:
+                pass
+            if not preset:
+                self.send_error(400, "Missing 'preset' parameter for llm_api model")
+                return
 
         # Parse max_samples.
         max_samples: Optional[int] = None
@@ -338,7 +380,8 @@ class _Handler(SimpleHTTPRequestHandler):
 
         thread = threading.Thread(
             target=_eval_runner_thread,
-            args=(run_id, abs_dataset, model_name, max_samples, random_sample),
+            args=(run_id, abs_dataset, model_name, max_samples, random_sample,
+                  preset, llm_config),
             daemon=True,
         )
         thread.start()

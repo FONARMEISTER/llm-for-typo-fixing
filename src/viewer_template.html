@@ -85,6 +85,7 @@
 <div id="toolbar">
   <select id="ds-select"><option value="">-- Dataset --</option></select>
   <select id="model-select"><option value="">-- Model --</option></select>
+  <select id="preset-select" style="display:none"><option value="">-- Preset --</option></select>
   <button id="btn-load" disabled title="Load dataset for browsing">📖 Browse</button>
   <span class="separator"></span>
   <button id="btn-eval" disabled title="Run model evaluation on selected dataset">▶ Run Eval</button>
@@ -156,9 +157,23 @@ let evalAllResults = [];      // accumulated results for incremental metrics.
     mSel.appendChild(opt);
   }
 
+  // Pre-load presets for initial model state.
+  const pSel = document.getElementById("preset-select");
+  if (mSel.value === "llm_api") {
+    await loadPresets();
+  }
+
   // Enable buttons when both dataset and model are selected.
-  dsSel.onchange = mSel.onchange = updateButtons;
-  updateButtons();
+  dsSel.onchange = () => { updateButtons(); };
+  mSel.onchange = async () => {
+    try { updateButtons(); } catch (e) { console.warn('updateButtons error:', e); }
+    if (mSel.value === "llm_api") {
+      await loadPresets();
+    } else {
+      pSel.style.display = "none";
+      pSel.innerHTML = '<option value="">-- Preset --</option>';
+    }
+  };
 
   document.getElementById("btn-load").onclick = loadDataset;
   document.getElementById("btn-eval").onclick = startEval;
@@ -180,7 +195,34 @@ function updateButtons() {
   const dsVal = document.getElementById("ds-select").value;
   const mVal = document.getElementById("model-select").value;
   document.getElementById("btn-load").disabled = !dsVal;
-  document.getElementById("btn-eval").disabled = !dsVal || !mVal;
+  let canEval = !!dsVal && !!mVal;
+  if (canEval && mVal === "llm_api") {
+    canEval = !!document.getElementById("preset-select").value;
+  }
+  document.getElementById("btn-eval").disabled = !canEval;
+}
+
+async function loadPresets() {
+  const pSel = document.getElementById("preset-select");
+  try {
+    const resp = await fetch("/api/presets");
+    const presets = await resp.json();
+    pSel.innerHTML = '<option value="">-- Preset --</option>';
+    let first = true;
+    for (const p of presets) {
+      const opt = document.createElement("option");
+      opt.value = p;
+      opt.textContent = p;
+      if (first) { opt.selected = true; first = false; }
+      pSel.appendChild(opt);
+    }
+    pSel.style.display = "inline";
+  } catch (e) {
+    pSel.innerHTML = '<option value="">-- Preset --</option>';
+    pSel.style.display = "none";
+  }
+  pSel.onchange = updateButtons;
+  updateButtons();
 }
 
 function formatSize(bytes) {
@@ -318,6 +360,10 @@ async function startEval() {
 
   // Build request body.
   const body = { dataset: dsPath, model: modelName };
+  if (modelName === "llm_api") {
+    const pSel = document.getElementById("preset-select");
+    body.preset = pSel.value;
+  }
   const chk = document.getElementById("chk-max-samples");
   if (chk.checked) {
     body.max_samples = parseInt(document.getElementById("input-max-samples").value) || 100;
