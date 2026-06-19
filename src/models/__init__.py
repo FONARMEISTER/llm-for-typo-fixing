@@ -21,6 +21,18 @@ def _make_gector(**kw: object):
     return GECToRFixer(**kw)  # type: ignore[arg-type]
 
 
+def _make_byt5(**kw: object):
+    """Lazy factory for ``byt5`` model."""
+    from .byt5_seq2seq import ByT5Seq2SeqFixer
+    return ByT5Seq2SeqFixer(**kw)  # type: ignore[arg-type]
+
+
+def _make_codet5(**kw: object):
+    """Lazy factory for ``codet5`` model."""
+    from .codet5_seq2seq import CodeT5Seq2SeqFixer
+    return CodeT5Seq2SeqFixer(**kw)  # type: ignore[arg-type]
+
+
 def _make_llm_api(**kw: object) -> LLMAPIFixer:
     """Factory for ``llm_api`` model — supports ``preset`` and ``config_path``."""
     preset = kw.pop("preset", None)
@@ -36,6 +48,8 @@ MODEL_REGISTRY = {
     "typos": lambda **kw: TyposFixer(**kw),
     "gector": _make_gector,
     "llm_api": _make_llm_api,
+    "byt5": _make_byt5,
+    "codet5": _make_codet5,
 }
 
 

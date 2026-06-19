@@ -62,6 +62,16 @@ MODELS: List[Dict[str, Any]] = [
         "display": "GECToR (CodeBERT)",
         "kwargs": {"model_dir": GECTOR_MODEL_DIR},
     },
+    {
+        "key": "byt5",
+        "display": "ByT5-small",
+        "kwargs": {},
+    },
+    {
+        "key": "codet5",
+        "display": "CodeT5-base",
+        "kwargs": {},
+    },
     # {
     #     "key": "llm_api",
     #     "display": "Llama 3.2 1B",
