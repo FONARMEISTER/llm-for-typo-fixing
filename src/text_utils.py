@@ -66,6 +66,9 @@ def reassemble_identifier(original: str, corrected_words: List[str]) -> str:
     new_parts: List[str] = []
     for part in parts:
         if not part:
+            # Consume the underscore placeholder word for the empty inter-
+            # delimiter segment, but keep an empty string for join().
+            next(words_iter)
             new_parts.append("")
             continue
         camel_words = _CAMEL_RE.findall(part)
