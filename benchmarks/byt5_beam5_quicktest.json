@@ -1,0 +1,22 @@
+{
+  "model": "ByT5-small (beam5)",
+  "model_key": "byt5_beam5",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T23:06:04",
+  "git_commit": "1c0853b",
+  "elapsed_wall_seconds": 393.80806738400133,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.48792270531400966,
+    "identifier_precision": 0.7687687687687688,
+    "identifier_recall": 0.839344262295082,
+    "identifier_f1": 0.8025078369905957,
+    "avg_normalized_edit_distance": 0.024902721928855526,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 21,
+    "clean_false_positive_rate": 0.027925531914893616,
+    "total_time_seconds": 393.805324394998,
+    "avg_time_per_sample_seconds": 1.9024411806521644,
+    "avg_time_per_kb_seconds": 10.169125007703391
+  }
+}

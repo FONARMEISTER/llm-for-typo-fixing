@@ -1,0 +1,22 @@
+{
+  "model": "CodeT5-base (beam5)",
+  "model_key": "codet5_beam5",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T23:11:20",
+  "git_commit": "1c0853b",
+  "elapsed_wall_seconds": 316.2230857370014,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.463768115942029,
+    "identifier_precision": 0.7329376854599406,
+    "identifier_recall": 0.8546712802768166,
+    "identifier_f1": 0.7891373801916933,
+    "avg_normalized_edit_distance": 0.027753792232196043,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 8,
+    "clean_false_positive_rate": 0.010638297872340425,
+    "total_time_seconds": 316.2203395999968,
+    "avg_time_per_sample_seconds": 1.5276344908212407,
+    "avg_time_per_kb_seconds": 8.16566959400824
+  }
+}
