@@ -124,6 +124,7 @@ def plot_per_dataset(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
         ("identifier_precision", "Precision", ".1%", (0.0, 1.0)),
         ("identifier_recall", "Recall", ".1%", (0.0, 1.0)),
         ("identifier_f1", "F1", ".1%", (0.0, 1.0)),
+        ("clean_false_positive_rate", "Clean FP Rate\n(lower is better)", ".1%", (0.0, 1.0)),
     ]
 
     for ds_key, models_dict in results.items():
@@ -134,9 +135,9 @@ def plot_per_dataset(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
             fig, ax = plt.subplots(figsize=(max(6, len(ordered) * 1.5), 4.5))
             fig.suptitle(f"Dataset: {ds_key} — {title}",
                          fontsize=11, fontweight="bold")
-            _bar_chart(ax, ordered, values, title, ylim=ylim, fmt=fmt)
+            _bar_chart(ax, ordered, values, title.split("\n")[0], ylim=ylim, fmt=fmt)
             fig.tight_layout()
-            out_path = PLOTS_DIR / f"bars_{ds_key}_{title.lower().replace(' ', '_')}.png"
+            out_path = PLOTS_DIR / f"bars_{ds_key}_{metric_key}.png"
             fig.savefig(out_path, dpi=150)
             plt.close(fig)
             print(f"Saved {out_path}")
