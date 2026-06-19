@@ -1,0 +1,22 @@
+{
+  "model": "Qwen-Coder LoRA",
+  "model_key": "lora_seq2seq",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-20T01:42:44",
+  "git_commit": "353a215",
+  "elapsed_wall_seconds": 733.8928078649988,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.5507246376811594,
+    "identifier_precision": 0.8119122257053292,
+    "identifier_recall": 0.8043478260869565,
+    "identifier_f1": 0.8081123244929799,
+    "avg_normalized_edit_distance": 0.018535814140827056,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 63,
+    "clean_false_positive_rate": 0.08377659574468085,
+    "total_time_seconds": 733.8902918199965,
+    "avg_time_per_sample_seconds": 3.5453637285990167,
+    "avg_time_per_kb_seconds": 18.951044227050218
+  }
+}

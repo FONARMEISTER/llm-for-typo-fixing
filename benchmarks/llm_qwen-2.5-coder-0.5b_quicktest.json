@@ -1,0 +1,22 @@
+{
+  "model": "Qwen 2.5-Coder 0.5B",
+  "model_key": "llm_api",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-20T00:37:16",
+  "git_commit": "3b70f9d",
+  "elapsed_wall_seconds": 43.474713067000266,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.06763285024154589,
+    "identifier_precision": 0.3291139240506329,
+    "identifier_recall": 0.18055555555555555,
+    "identifier_f1": 0.23318385650224213,
+    "avg_normalized_edit_distance": 0.057175255944451636,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 93,
+    "clean_false_positive_rate": 0.12367021276595745,
+    "total_time_seconds": 43.46934966099798,
+    "avg_time_per_sample_seconds": 0.2099968582656907,
+    "avg_time_per_kb_seconds": 1.122496886971679
+  }
+}
