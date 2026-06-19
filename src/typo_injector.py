@@ -5,11 +5,11 @@ Typos are injected into:
   * Comments.
 
 The key requirement: corrupted code MUST remain semantically equivalent to
-the original. We use Jedi_ for scope-aware refactoring, so that renaming a
+the original. We use libcst_ for scope-aware refactoring, so that renaming a
 variable in one scope does not accidentally shadow or clobber a variable
 with the same name in another scope.
 
-.. _Jedi: https://jedi.readthedocs.io/en/latest/
+.. _libcst: https://libcst.readthedocs.io/
 
 The public entry point is :func:`inject_typos`.
 """

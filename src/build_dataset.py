@@ -90,14 +90,6 @@ def _worker(payload: tuple) -> tuple[str, List[dict]]:
     :mod:`typo_injector`).  No extra setup is needed here.
     """
     snippet, seed, args_dict = payload
-    # Suppress SyntaxWarning from parso about invalid escape sequences in
-    # real-world code (e.g., "\i" in non-raw strings).
-    import warnings
-    warnings.filterwarnings("ignore", category=SyntaxWarning)
-
-    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
-    import jedi.settings
-    jedi.settings.cache_directory = None
 
     rng = random.Random(seed)
     args = argparse.Namespace(**args_dict)

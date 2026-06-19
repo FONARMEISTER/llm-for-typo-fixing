@@ -78,13 +78,6 @@ def _eval_runner_thread(
         Path to a GECToR checkpoint directory.  Required when
         ``model_name == "gector"``.
     """
-    # Disable parso disk cache in this thread (belt and suspenders).
-    try:
-        import jedi.settings
-        jedi.settings.cache_directory = None
-    except Exception:
-        pass
-
     try:
         # Load and filter error samples.
         all_samples = list(_iter_jsonl(dataset_path))

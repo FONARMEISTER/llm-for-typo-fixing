@@ -217,7 +217,10 @@ class ExtractIdentifiersTests(unittest.TestCase):
     # -- Keywords and builtins should be skipped ------------------------
 
     def test_skips_keywords(self):
-        ids = extract_renameable_identifiers("def f(): for x in y: pass")
+        ids = extract_renameable_identifiers("""def f(x):
+    for y in items:
+        pass
+""")
         self.assertNotIn("def", ids)
         self.assertNotIn("for", ids)
         self.assertNotIn("in", ids)

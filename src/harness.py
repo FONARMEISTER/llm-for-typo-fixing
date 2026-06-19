@@ -1,7 +1,7 @@
 """Evaluation harness for identifier name-fixing models.
 
 Reads a JSONL dataset, runs a :class:`NameFixer` on each corrupted sample,
-applies suggested fixes via Jedi's scope-aware refactoring, and reports
+applies suggested fixes via libcst's scope-aware refactoring, and reports
 metrics.
 """
 
@@ -16,7 +16,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from Levenshtein import distance as _lev_distance
 from tqdm import tqdm
 
-from .identifier_utils import apply_jedi_rename, extract_renameable_identifiers
+from .identifier_utils import apply_rename, extract_renameable_identifiers
 from .models import NameFixer, make_model
 
 
@@ -84,16 +84,11 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
 
     1. Extract identifiers from corrupted code.
     2. Ask model for fixes.
-    3. Apply each fix via Jedi rename (re-extracting positions after each).
+    3. Apply all fixes in a single libcst pass (no re-extraction needed).
     4. Return the result.
     """
     corrupted = sample["code"]
     ground_truth = sample["fixed"]
-
-    # Suppress SyntaxWarning from parso about invalid escape sequences in
-    # real-world code.
-    import warnings
-    warnings.filterwarnings("ignore", category=SyntaxWarning)
 
     # Extract identifiers from corrupted code.
     identifiers = extract_renameable_identifiers(corrupted)
@@ -102,37 +97,11 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
     # Get model suggestions.
     fixes = model.fix_names(corrupted, all_names)
 
-    # Apply fixes sequentially, re-extracting after every rename because
-    # character offsets shift.  Each identifier may be defined in multiple
-    # scopes — we rename them one scope at a time, re-extracting after each.
-    predicted = corrupted
-    for corrupted_name, fixed_name in fixes.items():
-        if corrupted_name == fixed_name:
-            continue
-        # Keep re-extracting and renaming until no more definitions of this
-        # name remain, or until we've tried every available position without
-        # success (e.g., Jedi rejects all of them).
-        tried = 0
-        while True:
-            current_ids = extract_renameable_identifiers(predicted)
-            positions = current_ids.get(corrupted_name, [])
-            if not positions:
-                break
-            if tried >= len(positions):
-                break  # exhausted all positions without success.
-            line, col = positions[tried]
-            try:
-                changed = apply_jedi_rename(predicted, line, col, fixed_name)
-            except Exception:
-                # Jedi may choke on edge cases (unresolvable type, stale
-                # internal state, etc.).  Skip this position.
-                tried += 1
-                continue
-            if changed:
-                predicted = next(iter(changed.values()))
-                tried = 0  # reset — code changed, positions need re-extraction.
-                continue
-            tried += 1  # rename returned empty result, try next position.
+    # Remove no-op fixes.
+    fixes = {k: v for k, v in fixes.items() if k != v}
+
+    # Apply all fixes at once — libcst handles scope awareness internally.
+    predicted = apply_rename(corrupted, fixes) if fixes else corrupted
 
     # Ground-truth edit info from the dataset record.
     gt_edits = sample.get("edits", [])
@@ -234,33 +203,11 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
-# Track whether this worker process has already initialised its own Jedi cache
-# and the path for cleanup on exit.
-_worker_cache_initialised = False
-_worker_cache_dir: Optional[str] = None
-
-
 def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
     """Process one sample in a child process — free function for pickling.
 
-    On Linux the default ``fork`` start method means child processes inherit
-    the parent's ``jedi.settings.cache_directory``.  All workers would share
-    the same path, corrupting each other's pickle files ("Ran out of input",
-    "invalid load key").  To prevent this, each worker re-initialises the
-    Jedi cache to a unique temp directory on its first call.
-    """
-    global _worker_cache_initialised, _worker_cache_dir
-    if not _worker_cache_initialised:
-        import atexit
-        import shutil
-        import tempfile
-        import pathlib
-        import jedi.settings
-        _worker_cache_dir = tempfile.mkdtemp(prefix="jedi_eval_worker_")
-        jedi.settings.cache_directory = pathlib.Path(_worker_cache_dir)
-        atexit.register(shutil.rmtree, _worker_cache_dir, ignore_errors=True)
-        _worker_cache_initialised = True
-
+    libcst is thread-safe and process-safe by design — each process has an
+    independent memory space, and libcst has no shared file cache."""
     sample, index, model_name, model_kwargs = payload
 
     model = make_model(model_name, **model_kwargs)
@@ -335,25 +282,8 @@ def _evaluate_threaded(
     """Evaluate samples using :class:`ThreadPoolExecutor` for concurrent
     I/O-bound LLM API calls.
 
-    Jedi is **not thread-safe** by default: ``fast_parser`` reuses mutable
-    module objects across calls, and the parso file cache is shared across
-    threads (leading to corrupted pickle files).  Both must be disabled
-    for the duration of the threaded evaluation."""
-    import jedi.settings
-
-    # Save and disable Jedi's thread-unsafe features.
-    _prev_cache = jedi.settings.cache_directory
-    _prev_fast = jedi.settings.fast_parser
-    jedi.settings.cache_directory = None
-    jedi.settings.fast_parser = False
-
-    try:
-        results = _run_threaded(error_samples, model, max_workers)
-    finally:
-        jedi.settings.cache_directory = _prev_cache
-        jedi.settings.fast_parser = _prev_fast
-
-    return results
+    libcst is thread-safe by design — no shared mutable state, no file cache."""
+    return _run_threaded(error_samples, model, max_workers)
 
 
 def _run_threaded(
