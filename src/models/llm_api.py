@@ -284,9 +284,17 @@ class LLMAPIFixer(NameFixer):
 
     @staticmethod
     def _get_retry_after(exc: APIStatusError) -> Optional[float]:
-        """Extract ``Retry-After`` header value if present, in seconds."""
+        """Extract ``Retry-After`` header value if present, in seconds.
+
+        In openai ``>= 1.0``, headers are stored on
+        ``exc.response.headers`` (``httpx.Response``), not on the
+        exception instance itself.
+        """
         try:
-            headers = getattr(exc, "headers", None) or {}
+            response = getattr(exc, "response", None)
+            if response is None:
+                return None
+            headers = getattr(response, "headers", None) or {}
             value = headers.get("retry-after")
             if value is None:
                 return None
