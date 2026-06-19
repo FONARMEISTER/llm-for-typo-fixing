@@ -234,8 +234,10 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
-# Track whether this worker process has already initialised its own Jedi cache.
+# Track whether this worker process has already initialised its own Jedi cache
+# and the path for cleanup on exit.
 _worker_cache_initialised = False
+_worker_cache_dir: Optional[str] = None
 
 
 def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
@@ -247,13 +249,16 @@ def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
     "invalid load key").  To prevent this, each worker re-initialises the
     Jedi cache to a unique temp directory on its first call.
     """
-    global _worker_cache_initialised
+    global _worker_cache_initialised, _worker_cache_dir
     if not _worker_cache_initialised:
+        import atexit
+        import shutil
         import tempfile
         import pathlib
         import jedi.settings
         _worker_cache_dir = tempfile.mkdtemp(prefix="jedi_eval_worker_")
         jedi.settings.cache_directory = pathlib.Path(_worker_cache_dir)
+        atexit.register(shutil.rmtree, _worker_cache_dir, ignore_errors=True)
         _worker_cache_initialised = True
 
     sample, index, model_name, model_kwargs = payload
