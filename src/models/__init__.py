@@ -43,6 +43,12 @@ def _make_llm_api(**kw: object) -> LLMAPIFixer:
     return LLMAPIFixer(**kw)  # type: ignore[arg-type]
 
 
+def _make_lora_seq2seq(**kw: object):
+    """Lazy factory for ``lora_seq2seq`` model."""
+    from .lora_seq2seq import LoraSeq2SeqFixer
+    return LoraSeq2SeqFixer(**kw)  # type: ignore[arg-type]
+
+
 MODEL_REGISTRY = {
     "spellcheck": lambda **kw: SpellCheckerFixer(**kw),
     "typos": lambda **kw: TyposFixer(**kw),
@@ -52,6 +58,7 @@ MODEL_REGISTRY = {
     "byt5_beam5": _make_byt5,
     "codet5": _make_codet5,
     "codet5_beam5": _make_codet5,
+    "lora_seq2seq": _make_lora_seq2seq,
 }
 
 

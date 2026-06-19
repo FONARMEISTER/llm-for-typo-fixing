@@ -277,3 +277,9 @@ train-gector-all:
 		--batch-size $(GECTOR_BATCH) \
 		--lr $(GECTOR_LR)
 
+train-lora:
+	uv run python scripts/train_lora.py
+
+train-lora-full:
+	uv run python scripts/train_lora.py --max-train-samples 20000
+

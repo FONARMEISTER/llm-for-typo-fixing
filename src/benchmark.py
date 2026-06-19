@@ -36,8 +36,8 @@ from src.models import make_model  # noqa: E402
 
 DATASET_PATHS = {
     # "demo": str(_project_root / "data" / "demo.jsonl"),
-    "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
-    # "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
+    # "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
+    "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
 }
 
 # ------------------------------------------------------------------ #
@@ -81,6 +81,11 @@ MODELS: List[Dict[str, Any]] = [
         "key": "codet5_beam5",
         "display": "CodeT5-base (beam5)",
         "kwargs": {"num_beams": 5},
+    },
+    {
+        "key": "lora_seq2seq",
+        "display": "Qwen-Coder LoRA",
+        "kwargs": {},
     },
     # {
     #     "key": "llm_api",
