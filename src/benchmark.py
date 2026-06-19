@@ -68,9 +68,19 @@ MODELS: List[Dict[str, Any]] = [
         "kwargs": {},
     },
     {
+        "key": "byt5_beam5",
+        "display": "ByT5-small (beam5)",
+        "kwargs": {"num_beams": 5},
+    },
+    {
         "key": "codet5",
         "display": "CodeT5-base",
         "kwargs": {},
+    },
+    {
+        "key": "codet5_beam5",
+        "display": "CodeT5-base (beam5)",
+        "kwargs": {"num_beams": 5},
     },
     # {
     #     "key": "llm_api",

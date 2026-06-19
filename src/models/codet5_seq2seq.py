@@ -32,6 +32,7 @@ class CodeT5Seq2SeqFixer(NameFixer):
         self,
         checkpoint_dir: str = _CODET5_CHECKPOINT_DIR,
         device: Optional[str] = None,
+        num_beams: int = 1,
     ) -> None:
         """Load CodeT5 from *checkpoint_dir*.
 
@@ -40,6 +41,7 @@ class CodeT5Seq2SeqFixer(NameFixer):
                 ``models/codet5-typo-fixer-final/``).
             device: Torch device string (e.g. ``"cuda"``, ``"cpu"``).
                 Auto-detected if *None*.
+            num_beams: Number of beams for generation (default 1 = greedy).
         """
         from transformers import AutoTokenizer, T5ForConditionalGeneration
 
@@ -52,6 +54,7 @@ class CodeT5Seq2SeqFixer(NameFixer):
 
         self._tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
         self._max_length = _CODET5_MAX_LENGTH
+        self._num_beams = num_beams
 
     # ------------------------------------------------------------------ #
     # NameFixer interface
@@ -81,7 +84,7 @@ class CodeT5Seq2SeqFixer(NameFixer):
             output_ids = self._model.generate(
                 **inputs,
                 max_length=self._max_length,
-                num_beams=1,
+                num_beams=self._num_beams,
             )
         return self._tokenizer.decode(output_ids[0], skip_special_tokens=True)
 

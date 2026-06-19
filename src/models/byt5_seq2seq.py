@@ -31,6 +31,7 @@ class ByT5Seq2SeqFixer(NameFixer):
         self,
         checkpoint_dir: str = _BYT5_CHECKPOINT_DIR,
         device: Optional[str] = None,
+        num_beams: int = 1,
     ) -> None:
         """Load ByT5 from *checkpoint_dir*.
 
@@ -39,6 +40,7 @@ class ByT5Seq2SeqFixer(NameFixer):
                 ``models/checkpoint-byt5/``).
             device: Torch device string (e.g. ``"cuda"``, ``"cpu"``).
                 Auto-detected if *None*.
+            num_beams: Number of beams for generation (default 1 = greedy).
         """
         # Lazy import to keep transformers optional for the base package.
         from transformers import AutoTokenizer, T5ForConditionalGeneration
@@ -52,6 +54,7 @@ class ByT5Seq2SeqFixer(NameFixer):
 
         self._tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
         self._max_length = _BYT5_MAX_LENGTH
+        self._num_beams = num_beams
 
     # ------------------------------------------------------------------ #
     # NameFixer interface
@@ -83,7 +86,7 @@ class ByT5Seq2SeqFixer(NameFixer):
             output_ids = self._model.generate(
                 **inputs,
                 max_length=self._max_length,
-                num_beams=1,
+                num_beams=self._num_beams,
             )
         return self._tokenizer.decode(output_ids[0], skip_special_tokens=True)
 

@@ -49,7 +49,9 @@ MODEL_REGISTRY = {
     "gector": _make_gector,
     "llm_api": _make_llm_api,
     "byt5": _make_byt5,
+    "byt5_beam5": _make_byt5,
     "codet5": _make_codet5,
+    "codet5_beam5": _make_codet5,
 }
 
 
