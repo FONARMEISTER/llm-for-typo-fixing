@@ -1,0 +1,22 @@
+{
+  "model": "CodeT5-base",
+  "model_key": "codet5",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T22:40:08",
+  "git_commit": "23563af",
+  "elapsed_wall_seconds": 260.68972946400027,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.4444444444444444,
+    "identifier_precision": 0.7189349112426036,
+    "identifier_recall": 0.8526315789473684,
+    "identifier_f1": 0.7800963081861958,
+    "avg_normalized_edit_distance": 0.028330336229700707,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 8,
+    "clean_false_positive_rate": 0.010638297872340425,
+    "total_time_seconds": 260.6869552779972,
+    "avg_time_per_sample_seconds": 1.2593572718743826,
+    "avg_time_per_kb_seconds": 6.7316465062329875
+  }
+}
