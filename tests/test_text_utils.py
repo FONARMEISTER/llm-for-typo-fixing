@@ -32,8 +32,8 @@ class SplitIdentifierTests(unittest.TestCase):
         self.assertEqual(split_identifier("_private"), ["_", "private"])
 
     def test_leading_double_underscore(self) -> None:
-        """Double leading underscore: one word, same as Python name mangling."""
-        self.assertEqual(split_identifier("__hidden"), ["__", "hidden"])
+        """Double leading underscore: one "_" word per underscore char."""
+        self.assertEqual(split_identifier("__hidden"), ["_", "_", "hidden"])
 
     def test_empty_string(self) -> None:
         """Empty identifier → empty list."""
@@ -44,8 +44,8 @@ class SplitIdentifierTests(unittest.TestCase):
         self.assertEqual(split_identifier("_"), ["_"])
 
     def test_only_double_underscore(self) -> None:
-        """Double underscore only."""
-        self.assertEqual(split_identifier("__"), ["__"])
+        """Double underscore only: two "_" words."""
+        self.assertEqual(split_identifier("__"), ["_", "_"])
 
     def test_double_underscore_in_middle(self) -> None:
         """Double underscore between words: a__b preserves separator."""
@@ -119,6 +119,19 @@ class ReassembleIdentifierTests(unittest.TestCase):
         """Leading underscore is preserved in reassembly."""
         result = reassemble_identifier("_private", ["_", "secret"])
         self.assertEqual(result, "_secret")
+
+    def test_leading_double_underscore_reassembly(self) -> None:
+        """Reassembling __private maps two "_" words correctly."""
+        # With split_identifier now returning ["_", "_", "private"],
+        # reassembly must handle the leading double underscore.
+        result = reassemble_identifier("__private", ["_", "_", "secret"])
+        self.assertEqual(result, "__secret")
+
+    def test_leading_double_underscore_identity(self) -> None:
+        """Reassembly identity round-trip for __private."""
+        name = "__private"
+        words = split_identifier(name)
+        self.assertEqual(reassemble_identifier(name, words), name)
 
     def test_double_underscore_in_reassembly(self) -> None:
         """Double underscore is preserved correctly."""

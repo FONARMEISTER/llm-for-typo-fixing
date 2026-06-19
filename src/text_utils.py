@@ -20,17 +20,19 @@ def split_identifier(name: str) -> List[str]:
     ``camelCase_snake``.  Leading underscores (``_private``) are preserved
     as a separate leading word.
     """
-    leading_underscores = ""
+    leading_underscore_count = 0
     while name.startswith("_"):
-        leading_underscores += "_"
+        leading_underscore_count += 1
         name = name[1:]
 
     if not name:
-        return [leading_underscores] if leading_underscores else []
+        if leading_underscore_count:
+            return ["_"] * leading_underscore_count
+        return []
 
     words: List[str] = []
-    if leading_underscores:
-        words.append(leading_underscores)
+    for _ in range(leading_underscore_count):
+        words.append("_")
 
     for part in name.split("_"):
         if not part:
