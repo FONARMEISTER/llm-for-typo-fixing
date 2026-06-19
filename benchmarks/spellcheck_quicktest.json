@@ -1,0 +1,22 @@
+{
+  "model": "SpellCheck",
+  "model_key": "spellcheck",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T18:29:26",
+  "git_commit": "8cbe09c",
+  "elapsed_wall_seconds": 13.476800443000684,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.18840579710144928,
+    "identifier_precision": 0.40058479532163743,
+    "identifier_recall": 0.7061855670103093,
+    "identifier_f1": 0.5111940298507464,
+    "avg_normalized_edit_distance": 0.03255626317532258,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 130,
+    "clean_false_positive_rate": 0.17287234042553193,
+    "total_time_seconds": 13.473939229999814,
+    "avg_time_per_sample_seconds": 0.0650914938647334,
+    "avg_time_per_kb_seconds": 0.3479337730808173
+  }
+}

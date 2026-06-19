@@ -1,0 +1,22 @@
+{
+  "model": "Qwen 3.5 9B",
+  "model_key": "llm_api",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T19:45:03",
+  "git_commit": "a650df2",
+  "elapsed_wall_seconds": 3175.747317278001,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.5555555555555556,
+    "identifier_precision": 0.9742489270386266,
+    "identifier_recall": 0.6735905044510386,
+    "identifier_f1": 0.7964912280701755,
+    "avg_normalized_edit_distance": 0.010398518825618246,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 4,
+    "clean_false_positive_rate": 0.005319148936170213,
+    "total_time_seconds": 3175.7445653700015,
+    "avg_time_per_sample_seconds": 15.341761185362326,
+    "avg_time_per_kb_seconds": 82.00636577830996
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "model": "Typos",
+  "model_key": "typos",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T18:29:34",
+  "git_commit": "8cbe09c",
+  "elapsed_wall_seconds": 7.702997948999837,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.033816425120772944,
+    "identifier_precision": 0.7142857142857143,
+    "identifier_recall": 0.10385756676557864,
+    "identifier_f1": 0.18134715025906736,
+    "avg_normalized_edit_distance": 0.030806627628939244,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 0,
+    "clean_false_positive_rate": 0.0,
+    "total_time_seconds": 7.699979995999456,
+    "avg_time_per_sample_seconds": 0.03719797099516645,
+    "avg_time_per_kb_seconds": 0.19883443489858638
+  }
+}

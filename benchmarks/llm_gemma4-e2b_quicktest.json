@@ -1,0 +1,22 @@
+{
+  "model": "Gemma 4 E2B",
+  "model_key": "llm_api",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T18:47:57",
+  "git_commit": "8cbe09c",
+  "elapsed_wall_seconds": 960.1711627439981,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.4975845410628019,
+    "identifier_precision": 0.9382239382239382,
+    "identifier_recall": 0.7386018237082067,
+    "identifier_f1": 0.826530612244898,
+    "avg_normalized_edit_distance": 0.010223327367319455,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 4,
+    "clean_false_positive_rate": 0.005319148936170213,
+    "total_time_seconds": 960.1680506259981,
+    "avg_time_per_sample_seconds": 4.638492998193228,
+    "avg_time_per_kb_seconds": 24.794151654041663
+  }
+}

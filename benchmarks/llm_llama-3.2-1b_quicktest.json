@@ -1,0 +1,22 @@
+{
+  "model": "Llama 3.2 1B",
+  "model_key": "llm_api",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T18:30:52",
+  "git_commit": "8cbe09c",
+  "elapsed_wall_seconds": 62.898747346000164,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.10628019323671498,
+    "identifier_precision": 0.48058252427184467,
+    "identifier_recall": 0.3235294117647059,
+    "identifier_f1": 0.38671875000000006,
+    "avg_normalized_edit_distance": 0.0450789793311193,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 114,
+    "clean_false_positive_rate": 0.15159574468085107,
+    "total_time_seconds": 62.89567547000115,
+    "avg_time_per_sample_seconds": 0.3038438428502471,
+    "avg_time_per_kb_seconds": 1.6241374777778637
+  }
+}

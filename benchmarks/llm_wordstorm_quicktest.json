@@ -1,0 +1,22 @@
+{
+  "model": "WordStorm",
+  "model_key": "llm_api",
+  "dataset": "quicktest",
+  "timestamp": "2026-06-19T19:55:49",
+  "git_commit": "a650df2",
+  "elapsed_wall_seconds": 420.8294073129982,
+  "metrics": {
+    "total_samples": 207,
+    "exact_match_rate": 0.6328502415458938,
+    "identifier_precision": 0.9028213166144201,
+    "identifier_recall": 0.9028213166144201,
+    "identifier_f1": 0.9028213166144201,
+    "avg_normalized_edit_distance": 0.007973211129197414,
+    "clean_samples_total": 293,
+    "clean_false_positive_count": 47,
+    "clean_false_positive_rate": 0.0625,
+    "total_time_seconds": 420.8268006269973,
+    "avg_time_per_sample_seconds": 2.0329797131739,
+    "avg_time_per_kb_seconds": 10.866893048595264
+  }
+}
