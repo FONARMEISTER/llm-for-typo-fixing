@@ -17,7 +17,6 @@ from src.gector.tokenize_code import (
     align_to_subwords,
     first_subword_mask,
     name_tag_from_edit,
-    CodeToken,
 )
 import tokenize as _tokenize
 

@@ -16,7 +16,6 @@ The public entry point is :func:`inject_typos`.
 
 from __future__ import annotations
 
-import ast
 import io
 import keyword
 import random

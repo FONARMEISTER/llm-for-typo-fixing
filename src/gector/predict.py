@@ -33,7 +33,7 @@ from .tokenize_code import (
     first_subword_mask,
 )
 from .vocab import (
-    KEEP_IDX, DELETE_IDX, UNK_IDX,
+    KEEP_IDX,
     is_replace_tag, replacement_token,
     is_char_edit_tag, apply_char_edit,
 )

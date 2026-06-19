@@ -113,7 +113,7 @@ def _process_split(
     args: argparse.Namespace,
 ) -> None:
     """Process a single split and write to output file."""
-    total = _estimate_total(source, split, args.max_samples)
+    _estimate_total(source, split, args.max_samples)
 
     # Collect all snippets upfront (needed for parallel distribution).
     snippets = list(iter_source(source, **_build_kwargs(args, split)))
@@ -258,7 +258,7 @@ def main() -> None:
         print(f"\nProcessing {split} split...")
         _process_split(args.source, split, out_path, rng, args)
 
-    print(f"\n✓ All splits processed successfully!")
+    print("\n✓ All splits processed successfully!")
 
 
 if __name__ == "__main__":

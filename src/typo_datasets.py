@@ -11,7 +11,7 @@ from typing import Dict, List, Union, Any
 
 import torch
 from torch.utils.data import Dataset
-from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
+from transformers import PreTrainedTokenizer
 
 
 class BaseTypoDataset(Dataset):

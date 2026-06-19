@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer lint clean train-gector train-gector-all
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer ruff ruff-fix lint clean train-gector train-gector-all
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -162,8 +162,16 @@ eval-llm:
 viewer:
 	uv run python -m src.viewer
 
-# Lint Python sources.
-lint:
+# Run ruff linter only (no formatting).
+ruff:
+	uv run ruff check src/ tests/
+
+# Auto-fix safe ruff issues.
+ruff-fix:
+	uv run ruff check --fix src/ tests/
+
+# Full lint: ruff check + py_compile.
+lint: ruff
 	uv run python -m py_compile src/*.py
 
 # Remove generated data files.

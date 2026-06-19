@@ -22,7 +22,7 @@ from src.gector.vocab import (
     TagVocab,
     KEEP_TAG, DELETE_TAG, UNK_TAG,
     KEEP_IDX, DELETE_IDX, UNK_IDX,
-    MAX_CHAR_POS, EDIT_ALPHABET,
+    MAX_CHAR_POS,
     compute_char_edit_tag,
     apply_char_edit,
     replace_tag,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from Levenshtein import distance as _lev_distance

@@ -12,7 +12,6 @@ import random
 import unittest
 
 from src.typo_injector import (
-    _corrupt_comments_in_source,
     _extract_renameable_identifiers,
     inject_typos,
     make_typo,

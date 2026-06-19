@@ -205,7 +205,7 @@ def apply_replace_tags(
     str
         Reconstructed source with replacements applied.
     """
-    from .vocab import is_replace_tag, replacement_token, KEEP_TAG, DELETE_TAG
+    from .vocab import is_replace_tag, replacement_token, DELETE_TAG
 
     assert len(code_tokens) == len(tags), (
         f"len(code_tokens)={len(code_tokens)} != len(tags)={len(tags)}"

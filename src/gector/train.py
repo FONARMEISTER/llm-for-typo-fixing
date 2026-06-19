@@ -38,8 +38,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
-import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -122,11 +120,11 @@ def _accumulate_detect(
         mask = labels != LABEL_IGNORE
 
         p = preds[mask]
-        l = labels[mask]
+        t = labels[mask]
 
-        tp = int(((p == 1) & (l == 1)).sum().item())
-        fp = int(((p == 1) & (l == 0)).sum().item())
-        fn = int(((p == 0) & (l == 1)).sum().item())
+        tp = int(((p == 1) & (t == 1)).sum().item())
+        fp = int(((p == 1) & (t == 0)).sum().item())
+        fn = int(((p == 0) & (t == 1)).sum().item())
     return tp, fp, fn
 
 
@@ -167,7 +165,7 @@ def _levenshtein_reinforce_loss(
     device, max_length : forwarded from the training run
     """
     from .tokenize_code import code_tokens_from_source, align_to_subwords, first_subword_mask
-    from .vocab import is_replace_tag, replacement_token, is_char_edit_tag, apply_char_edit, KEEP_IDX
+    from .vocab import is_replace_tag, replacement_token, is_char_edit_tag, apply_char_edit
 
     batch_size = tag_logits.size(0)
     log_probs = torch.log_softmax(tag_logits, dim=-1)  # [B, L, V]
@@ -446,7 +444,6 @@ def train(
         model.train()
         train_loss = 0.0
         train_steps = 0
-        global_step = (epoch - 1) * len(train_loader)
         train_tp = train_fp = train_fn = 0
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{epochs} [train]", leave=False)
