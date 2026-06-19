@@ -134,9 +134,14 @@ def extract_renameable_identifiers(
         raise UnparseableCodeError(
             f"Cannot parse source: {cst.ParserSyntaxError}"
         ) from None
-    wrapper = MetadataWrapper(module)
-    scopes_map = wrapper.resolve(ScopeProvider)
-    positions = wrapper.resolve(PositionProvider)
+    try:
+        wrapper = MetadataWrapper(module)
+        scopes_map = wrapper.resolve(ScopeProvider)
+        positions = wrapper.resolve(PositionProvider)
+    except RecursionError:
+        raise UnparseableCodeError(
+            "Source too deeply nested for libcst scope analysis"
+        ) from None
 
     result: Dict[str, List[Tuple[int, int]]] = {}
     seen_scopes: Set[int] = set()
@@ -226,8 +231,13 @@ def apply_rename(
         raise UnparseableCodeError(
             f"Cannot parse source: {cst.ParserSyntaxError}"
         ) from None
-    wrapper = MetadataWrapper(module)
-    scopes_map = wrapper.resolve(ScopeProvider)
+    try:
+        wrapper = MetadataWrapper(module)
+        scopes_map = wrapper.resolve(ScopeProvider)
+    except RecursionError:
+        raise UnparseableCodeError(
+            "Source too deeply nested for libcst scope analysis"
+        ) from None
 
     nodes_to_rename: Set[cst.CSTNode] = set()
     seen_scopes: Set[int] = set()
@@ -252,7 +262,12 @@ def apply_rename(
         return source
 
     transformer = _MultiRenameTransformer(rename_map, nodes_to_rename)
-    return wrapper.module.visit(transformer).code
+    try:
+        return wrapper.module.visit(transformer).code
+    except RecursionError:
+        raise UnparseableCodeError(
+            "Source too deeply nested for libcst rename traversal"
+        ) from None
 
 
 # ---------------------------------------------------------------------------
@@ -285,9 +300,14 @@ def apply_rename_single(
         raise UnparseableCodeError(
             f"Cannot parse source: {cst.ParserSyntaxError}"
         ) from None
-    wrapper = MetadataWrapper(module)
-    scopes_map = wrapper.resolve(ScopeProvider)
-    positions = wrapper.resolve(PositionProvider)
+    try:
+        wrapper = MetadataWrapper(module)
+        scopes_map = wrapper.resolve(ScopeProvider)
+        positions = wrapper.resolve(PositionProvider)
+    except RecursionError:
+        raise UnparseableCodeError(
+            "Source too deeply nested for libcst scope analysis"
+        ) from None
 
     # Find the assignment at (line, col).
     target_assignment = None
@@ -335,4 +355,9 @@ def apply_rename_single(
         return source
 
     transformer = _MultiRenameTransformer({target_name: new_name}, nodes_to_rename)
-    return wrapper.module.visit(transformer).code
+    try:
+        return wrapper.module.visit(transformer).code
+    except RecursionError:
+        raise UnparseableCodeError(
+            "Source too deeply nested for libcst rename traversal"
+        ) from None
