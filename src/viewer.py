@@ -173,6 +173,16 @@ class _Handler(SimpleHTTPRequestHandler):
     # JSONL files larger than this are served truncated at a newline boundary.
     MAX_JSONL_BYTES: ClassVar[int] = 10 * 1024 * 1024  # 10 MiB
 
+    # ---- Logging suppression -------------------------------------------------
+
+    def log_request(self, code='-', size='-'):
+        """Suppress log lines for successful requests (1xx/2xx/3xx).
+
+        Only 4xx (client error) and 5xx (server error) status codes are logged.
+        """
+        if isinstance(code, int) and code >= 400:
+            super().log_request(code, size)
+
     # ---- GET -----------------------------------------------------------------
 
     def do_GET(self):
