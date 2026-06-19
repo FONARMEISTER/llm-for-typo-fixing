@@ -35,8 +35,8 @@ from src.models import make_model  # noqa: E402
 # ------------------------------------------------------------------ #
 
 DATASET_PATHS = {
-    "demo": str(_project_root / "data" / "demo.jsonl"),
-    "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
+    # "demo": str(_project_root / "data" / "demo.jsonl"),
+    # "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
     "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
 }
 
@@ -115,6 +115,9 @@ def _metrics_to_dict(m: EvalMetrics) -> Dict[str, Any]:
         "identifier_recall": m.identifier_recall,
         "identifier_f1": m.identifier_f1,
         "avg_normalized_edit_distance": m.avg_normalized_edit_distance,
+        "clean_samples_total": m.clean_samples_total,
+        "clean_false_positive_count": m.clean_false_positive_count,
+        "clean_false_positive_rate": m.clean_false_positive_rate,
         "total_time_seconds": m.total_time_seconds,
         "avg_time_per_sample_seconds": m.avg_time_per_sample_seconds,
         "avg_time_per_kb_seconds": m.avg_time_per_kb_seconds,

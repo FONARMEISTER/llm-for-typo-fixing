@@ -26,3 +26,5 @@ coverage.json
 
 # Generated benchmark plots (binary, large).
 benchmarks/plots/
+# Generated benchmark results (auto-cached, large JSONLs).
+benchmarks/*.json

@@ -74,6 +74,11 @@ def _run(
     print(f"Identifier F1:          {metrics.identifier_f1:.4f}")
     print(f"Avg norm. edit distance: {metrics.avg_normalized_edit_distance:.4f}")
     print("-" * 60)
+    if metrics.clean_samples_total:
+        print(f"Clean samples checked:   {metrics.clean_samples_total}")
+        print(f"False positives (names):  {metrics.clean_false_positive_count}")
+        print(f"FP rate on clean code:    {metrics.clean_false_positive_rate:.4f}")
+        print("-" * 60)
     print(f"Total time:             {metrics.total_time_seconds:,.2f} s")
     print(f"Avg time / sample:      {metrics.avg_time_per_sample_seconds:,.2f} s")
     print(f"Avg time / kB:          {metrics.avg_time_per_kb_seconds:,.4f} s")

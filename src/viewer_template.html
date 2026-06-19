@@ -517,7 +517,8 @@ function showFinalEvalMetrics(data) {
   document.getElementById("progress-metrics").textContent =
     `Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)} \u2022 ` +
     `Time: ${m.total_time_seconds.toFixed(1)} s ` +
-    `(${(m.avg_time_per_sample_seconds * 1000).toFixed(0)} ms/sample, ${(m.avg_time_per_kb_seconds * 1000).toFixed(1)} ms/Kb)`;
+    `(${(m.avg_time_per_sample_seconds * 1000).toFixed(0)} ms/sample, ${(m.avg_time_per_kb_seconds * 1000).toFixed(1)} ms/Kb)` +
+    (m.clean_samples_total ? ` \u2022 FP on clean: ${(m.clean_false_positive_rate * 100).toFixed(1)}%` : '');
 }
 
 function appendEvalSample(s) {
@@ -615,6 +616,9 @@ function renderEval(data) {
     html += `<span>Total: ${m.total_time_seconds.toFixed(1)} s</span>`;
     html += `<span>Per sample: ${(m.avg_time_per_sample_seconds * 1000).toFixed(0)} ms</span>`;
     html += `<span>Per kB: ${(m.avg_time_per_kb_seconds * 1000).toFixed(1)} ms</span>`;
+  }
+  if (m.clean_samples_total) {
+    html += `<span>FP on clean: ${m.clean_false_positive_count} names (${(m.clean_false_positive_rate*100).toFixed(1)}%)</span>`;
   }
   html += `</div>`;
 

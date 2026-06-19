@@ -60,6 +60,11 @@ class EvalMetrics:
     identifier_f1: float
     avg_normalized_edit_distance: float
 
+    # False positives on clean samples.
+    clean_samples_total: int
+    clean_false_positive_count: int  # number of names falsely flagged as needing a fix.
+    clean_false_positive_rate: float  # FP names / total clean names.
+
     # Timing.
     total_time_seconds: float
     avg_time_per_sample_seconds: float
@@ -142,12 +147,37 @@ def _process_sample(
     )
 
 
+def _check_clean_sample(sample: dict, model: NameFixer) -> Tuple[int, int]:
+    """Check whether the model incorrectly proposes fixes on a clean sample.
+
+    Returns ``(false_positive_count, total_names)`` — the number of
+    identifiers the model falsely flagged for editing, and the total
+    number of identifiers checked.
+    Returns ``(0, 0)`` if the code cannot be parsed or has no identifiers.
+    """
+    try:
+        identifiers = extract_renameable_identifiers(sample["code"])
+    except UnparseableCodeError:
+        return 0, 0
+    names = list(identifiers.keys())
+    if not names:
+        return 0, 0
+    fixes = model.fix_names(sample["code"], names)
+    fp = sum(1 for k, v in fixes.items() if k != v)
+    return fp, len(names)
+
+
 # --------------------------------------------------------------------------- #
 # Metrics
 # --------------------------------------------------------------------------- #
 
 
-def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
+def compute_metrics(
+    results: List[SampleResult],
+    clean_fp_count: int = 0,
+    clean_names_total: int = 0,
+    clean_samples_total: int = 0,
+) -> EvalMetrics:
     """Aggregate per-sample results into :class:`EvalMetrics`.
 
     Timing fields are set to zero — callers should fill them in.
@@ -161,6 +191,11 @@ def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
             identifier_recall=0.0,
             identifier_f1=0.0,
             avg_normalized_edit_distance=0.0,
+            clean_samples_total=clean_samples_total,
+            clean_false_positive_count=clean_fp_count,
+            clean_false_positive_rate=(
+                clean_fp_count / clean_names_total if clean_names_total else 0.0
+            ),
             total_time_seconds=0.0,
             avg_time_per_sample_seconds=0.0,
             avg_time_per_kb_seconds=0.0,
@@ -192,6 +227,11 @@ def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
         identifier_recall=recall,
         identifier_f1=f1,
         avg_normalized_edit_distance=avg_edit,
+        clean_samples_total=clean_samples_total,
+        clean_false_positive_count=clean_fp_count,
+        clean_false_positive_rate=(
+            clean_fp_count / clean_names_total if clean_names_total else 0.0
+        ),
         total_time_seconds=0.0,
         avg_time_per_sample_seconds=0.0,
         avg_time_per_kb_seconds=0.0,
@@ -278,6 +318,9 @@ def evaluate(
     error_samples = [
         (s, i) for i, s in enumerate(all_samples) if s.get("has_errors", False)
     ]
+    clean_samples = [
+        s for s in all_samples if not s.get("has_errors", False)
+    ]
     if max_samples is not None:
         error_samples = error_samples[:max_samples]
 
@@ -291,27 +334,47 @@ def evaluate(
 
     t_start = time.perf_counter()
 
+    # --- Error samples ---
     if max_parallel > 1:
-        # Thread-pool path — concurrent HTTP calls, rename ops serialised by GIL.
         results = _evaluate_threaded(error_samples, model, max_parallel)
     elif n_workers <= 1:
-        # Serial path — no pickling overhead, simpler debugging.
         results: List[SampleResult] = []
         for sample, idx in tqdm(error_samples, desc="Evaluating", unit="sample"):
             sr = _process_sample(sample, idx, model)
             if sr is not None:
                 results.append(sr)
     else:
-        # Parallel path — each worker creates its own model copy.
-        model_name = model.name  # type: ignore[attr-defined]
-        # Collect any extra constructor kwargs the model needs to be rebuilt
-        # in worker processes (e.g. GECToRFixer needs model_dir).
+        model_name = model.name
         model_kwargs = getattr(model, "_init_kwargs", {})
         results = _evaluate_parallel(error_samples, model_name, model_kwargs, n_workers)
 
+    # --- Clean samples (false-positive detection) ---
+    clean_fp_count = 0
+    clean_names_total = 0
+    if clean_samples and max_parallel > 1:
+        # Thread-pool path — parallelise clean checks.
+        with ThreadPoolExecutor(max_workers=max_parallel) as ex:
+            futures = [
+                ex.submit(_check_clean_sample, s, model) for s in clean_samples
+            ]
+            for future in as_completed(futures):
+                fp, nt = future.result()
+                clean_fp_count += fp
+                clean_names_total += nt
+    elif clean_samples:
+        for sample in tqdm(clean_samples, desc="Clean check", unit="sample"):
+            fp, nt = _check_clean_sample(sample, model)
+            clean_fp_count += fp
+            clean_names_total += nt
+
     elapsed = time.perf_counter() - t_start
 
-    metrics = compute_metrics(results)
+    metrics = compute_metrics(
+        results,
+        clean_fp_count=clean_fp_count,
+        clean_names_total=clean_names_total,
+        clean_samples_total=len(clean_samples),
+    )
 
     # Fill in timing.
     n = len(results)

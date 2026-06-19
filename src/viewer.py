@@ -33,7 +33,7 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "viewer_template.html"
 try:
     from .models import MODEL_REGISTRY, make_model
     from .models.llm_api import _load_presets
-    from .harness import _iter_jsonl, _process_sample, compute_metrics
+    from .harness import _iter_jsonl, _process_sample, _check_clean_sample, compute_metrics
 except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -84,6 +84,9 @@ def _eval_runner_thread(
         all_samples = list(_iter_jsonl(dataset_path))
         error_samples = [
             (s, i) for i, s in enumerate(all_samples) if s.get("has_errors", False)
+        ]
+        clean_samples_list = [
+            s for s in all_samples if not s.get("has_errors", False)
         ]
 
         total_available = len(error_samples)
@@ -147,8 +150,31 @@ def _eval_runner_thread(
                 with _eval_lock:
                     _running_evals[run_id]["results"] = list(results)
 
+        # --- Clean samples (false-positive detection) ---
+        clean_fp_count = 0
+        clean_names_total = 0
+        if clean_samples_list and max_parallel > 1:
+            with ThreadPoolExecutor(max_workers=max_parallel) as ex:
+                futures = [
+                    ex.submit(_check_clean_sample, s, model) for s in clean_samples_list
+                ]
+                for future in as_completed(futures):
+                    fp, nt = future.result()
+                    clean_fp_count += fp
+                    clean_names_total += nt
+        elif clean_samples_list:
+            for sample in clean_samples_list:
+                fp, nt = _check_clean_sample(sample, model)
+                clean_fp_count += fp
+                clean_names_total += nt
+
         # Compute final metrics.
-        metrics = compute_metrics(results)
+        metrics = compute_metrics(
+            results,
+            clean_fp_count=clean_fp_count,
+            clean_names_total=clean_names_total,
+            clean_samples_total=len(clean_samples_list),
+        )
 
         elapsed = time.perf_counter() - t_start
         n = len(results)
@@ -163,6 +189,9 @@ def _eval_runner_thread(
                 "identifier_recall": metrics.identifier_recall,
                 "identifier_f1": metrics.identifier_f1,
                 "avg_normalized_edit_distance": metrics.avg_normalized_edit_distance,
+                "clean_samples_total": metrics.clean_samples_total,
+                "clean_false_positive_count": metrics.clean_false_positive_count,
+                "clean_false_positive_rate": metrics.clean_false_positive_rate,
                 "total_time_seconds": elapsed,
                 "avg_time_per_sample_seconds": elapsed / n if n else 0.0,
                 "avg_time_per_kb_seconds": elapsed / total_kb if total_kb else 0.0,
