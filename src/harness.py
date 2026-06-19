@@ -333,8 +333,36 @@ def _evaluate_threaded(
     max_workers: int,
 ) -> List[SampleResult]:
     """Evaluate samples using :class:`ThreadPoolExecutor` for concurrent
-    I/O-bound LLM API calls.  Jedi rename operations are serialised by
-    the GIL and are thread-safe within a single process."""
+    I/O-bound LLM API calls.
+
+    Jedi is **not thread-safe** by default: ``fast_parser`` reuses mutable
+    module objects across calls, and the parso file cache is shared across
+    threads (leading to corrupted pickle files).  Both must be disabled
+    for the duration of the threaded evaluation."""
+    import jedi.settings
+
+    # Save and disable Jedi's thread-unsafe features.
+    _prev_cache = jedi.settings.cache_directory
+    _prev_fast = jedi.settings.fast_parser
+    jedi.settings.cache_directory = None
+    jedi.settings.fast_parser = False
+
+    try:
+        results = _run_threaded(error_samples, model, max_workers)
+    finally:
+        jedi.settings.cache_directory = _prev_cache
+        jedi.settings.fast_parser = _prev_fast
+
+    return results
+
+
+def _run_threaded(
+    error_samples: List[Tuple[dict, int]],
+    model: NameFixer,
+    max_workers: int,
+) -> List[SampleResult]:
+    """Core of ``_evaluate_threaded`` — extracted so save/restore logic
+    is separate from the executor machinery."""
     results: List[SampleResult] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
