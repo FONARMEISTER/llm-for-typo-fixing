@@ -1,17 +1,25 @@
+# Python stuff.
 .venv/
 __pycache__/
 *.pyc
-data/
-.cache/
-.DS_Store
+
+# Datasets can be generated from code,
+# models are too large to store in git.
+/data
+/models
+
+# Ilya's stuff:
+Makefile.pip
+requirements.txt
+MODEL.md
 *.out
 *.log
 *.err
-/models/
-Makefile.pip
-requirements.txt
 *.7z
-MODEL.md
+.DS_Store
+.cache/
+
+# Test code coverage:
 htmlcov/
 coverage.json
 .coverage
