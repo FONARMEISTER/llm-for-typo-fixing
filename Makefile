@@ -2,7 +2,7 @@
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-
+WORKES_EVAL := 1
 # Default model and dataset for evaluation
 MODEL ?= spellcheck
 DATASET ?= data/demo.jsonl
@@ -91,7 +91,7 @@ eval:
 		--model $(MODEL) \
 		--dataset $(DATASET) \
 		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
+		--workers $(WORKES_EVAL)
 
 # Run evaluation on demo dataset.
 # Usage: make eval-demo MODEL=spellcheck
@@ -101,76 +101,49 @@ eval-demo:
 		--model $(MODEL) \
 		--dataset data/demo.jsonl \
 		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
+		--workers $(WORKES_EVAL)
 
 # Run evaluation on MBPP dataset (all splits).
 # Usage: make eval-mbpp MODEL=spellcheck
 # Usage: make eval-mbpp MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-mbpp:
-	@echo "Evaluating MBPP train split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/mbpp/train.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
-	@echo "Evaluating MBPP validation split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/mbpp/validation.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
 	@echo "Evaluating MBPP test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/mbpp/test.jsonl \
 		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
+		--workers $(WORKES_EVAL)
 
 # Run evaluation on Magicoder dataset (all splits).
 # Usage: make eval-magicoder MODEL=spellcheck
 # Usage: make eval-magicoder MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-magicoder:
-	@echo "Evaluating Magicoder train split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/magicoder/train.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
-	@echo "Evaluating Magicoder validation split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/magicoder/validation.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
 	@echo "Evaluating Magicoder test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/magicoder/test.jsonl \
 		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
+		--workers $(WORKES_EVAL)
 
 # Run evaluation on CodeAlpaca dataset (all splits).
 # Usage: make eval-codealpaca MODEL=spellcheck
 # Usage: make eval-codealpaca MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-codealpaca:
-	@echo "Evaluating CodeAlpaca train split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/codealpaca/train.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
-	@echo "Evaluating CodeAlpaca validation split..."
-	uv run python -m src.eval \
-		--model $(MODEL) \
-		--dataset data/codealpaca/validation.jsonl \
-		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
 	@echo "Evaluating CodeAlpaca test split..."
 	uv run python -m src.eval \
 		--model $(MODEL) \
 		--dataset data/codealpaca/test.jsonl \
 		--gector-model $(GECTOR_MODEL)/best \
-		--workers $(WORKERS)
+		--workers $(WORKES_EVAL)
+
+eval-github:
+	@echo "Evaluating github_python test split..."
+	uv run python -m src.eval \
+		--model $(MODEL) \
+		--dataset data/github_python/test.jsonl \
+		--gector-model $(GECTOR_MODEL)/best \
+		--workers $(WORKES_EVAL)
+
 
 # Run evaluation on ALL datasets (demo + mbpp + magicoder + codealpaca), all splits.
 # Usage: make eval-all MODEL=spellcheck

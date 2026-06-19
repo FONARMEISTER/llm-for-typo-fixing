@@ -204,6 +204,8 @@ class _Handler(SimpleHTTPRequestHandler):
         # List available GECToR checkpoint directories.
         if path == "/api/gector_checkpoints":
             self._serve_json(self._list_gector_checkpoints())
+            return
+
         # List available LLM presets.
         if path == "/api/presets":
             self._serve_json(self._list_presets())

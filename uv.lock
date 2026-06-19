@@ -807,8 +807,10 @@ requires-dist = [
     { name = "levenshtein", specifier = ">=0.27.0" },
     { name = "openai", specifier = ">=2.43.0" },
     { name = "pyspellchecker", specifier = ">=0.8.0" },
+    { name = "torch", specifier = ">=2.0.0" },
     { name = "torch", marker = "extra == 'ml'", specifier = ">=2.0.0" },
     { name = "tqdm", specifier = ">=4.65.0" },
+    { name = "transformers", specifier = ">=4.35.0" },
     { name = "transformers", marker = "extra == 'ml'", specifier = ">=4.30.0" },
     { name = "typos", specifier = ">=1.47.2" },
 ]

@@ -210,6 +210,7 @@ let evalAllResults = [];      // accumulated results for incremental metrics.
   }
   mSel.onchange = async () => {
     try { updateButtons(); } catch (e) { console.warn('updateButtons error:', e); }
+    updateGectorRow();
     if (mSel.value === "llm_api") {
       await loadPresets();
     } else {

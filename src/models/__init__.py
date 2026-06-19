@@ -15,6 +15,12 @@ __all__ = [
 ]
 
 
+def _make_gector(**kw: object):
+    """Lazy factory for ``gector`` model — avoids importing torch at top level."""
+    from ..gector.fixer import GECToRFixer
+    return GECToRFixer(**kw)  # type: ignore[arg-type]
+
+
 def _make_llm_api(**kw: object) -> LLMAPIFixer:
     """Factory for ``llm_api`` model — supports ``preset`` and ``config_path``."""
     preset = kw.pop("preset", None)
@@ -28,25 +34,9 @@ def _make_llm_api(**kw: object) -> LLMAPIFixer:
 MODEL_REGISTRY = {
     "spellcheck": lambda **kw: SpellCheckerFixer(**kw),
     "typos": lambda **kw: TyposFixer(**kw),
-    # GECToR: requires --gector-model <checkpoint_dir> kwarg.
-    # Registered as a factory so the checkpoint path can be passed at
-    # runtime without importing torch at module load time.
-    "gector": lambda **kw: _make_gector(**kw),
+    "gector": _make_gector,
     "llm_api": _make_llm_api,
 }
-
-
-def _make_gector(**kwargs):
-    """Lazy factory for GECToRFixer — avoids importing torch at import time."""
-    from ..gector.fixer import GECToRFixer
-    model_dir = kwargs.pop("model_dir", None)
-    if model_dir is None:
-        raise ValueError(
-            "GECToRFixer requires model_dir=<checkpoint_dir>.  "
-            "Pass it via make_model('gector', model_dir='models/gector/best') "
-            "or use --gector-model on the CLI."
-        )
-    return GECToRFixer(model_dir=model_dir, **kwargs)
 
 
 def make_model(name: str, **kwargs):

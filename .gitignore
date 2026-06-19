@@ -7,7 +7,7 @@ data/
 *.out
 *.log
 *.err
-models/
+/models/
 Makefile.pip
 requirements.txt
 *.7z
