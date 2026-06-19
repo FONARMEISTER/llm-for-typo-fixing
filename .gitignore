@@ -23,3 +23,6 @@ MODEL.md
 htmlcov/
 coverage.json
 .coverage
+
+# Generated benchmark plots (binary, large).
+benchmarks/plots/

@@ -158,6 +158,18 @@ eval-llm:
 		--preset $(PRESET) \
 		--dataset data/demo.jsonl
 
+# Run all benchmarks, caching results to benchmarks/.
+# Usage: make benchmark                    # run missing
+#        make benchmark FORCE=1            # re-run all
+#        make benchmark SAVE_SAMPLES=1     # include per-sample results
+benchmark:
+	uv run python -m src.benchmark \
+		$(if $(FORCE),--force,) \
+		$(if $(SAVE_SAMPLES),--save-samples,)
+
+# Visualise cached benchmark results as charts.
+benchmark-viz:
+	uv run python -m src.benchmark_viz
 # Start the dataset viewer (opens browser).
 viewer:
 	uv run python -m src.viewer
