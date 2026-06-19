@@ -515,7 +515,9 @@ function showFinalEvalMetrics(data) {
     `F1: ${pct(m.identifier_f1)}%  ` +
     `Prec: ${pct(m.identifier_precision)}%  Rec: ${pct(m.identifier_recall)}%`;
   document.getElementById("progress-metrics").textContent =
-    `Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)}`;
+    `Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)} \u2022 ` +
+    `Time: ${m.total_time_seconds.toFixed(1)} s ` +
+    `(${(m.avg_time_per_sample_seconds * 1000).toFixed(0)} ms/sample, ${(m.avg_time_per_kb_seconds * 1000).toFixed(1)} ms/Kb)`;
 }
 
 function appendEvalSample(s) {
@@ -609,6 +611,11 @@ function renderEval(data) {
   html += `<span>Precision: ${(m.identifier_precision*100).toFixed(1)}%</span>`;
   html += `<span>Recall: ${(m.identifier_recall*100).toFixed(1)}%</span>`;
   html += `<span>Avg edit dist: ${m.avg_normalized_edit_distance.toFixed(4)}</span>`;
+  if (m.total_time_seconds) {
+    html += `<span>Total: ${m.total_time_seconds.toFixed(1)} s</span>`;
+    html += `<span>Per sample: ${(m.avg_time_per_sample_seconds * 1000).toFixed(0)} ms</span>`;
+    html += `<span>Per kB: ${(m.avg_time_per_kb_seconds * 1000).toFixed(1)} ms</span>`;
+  }
   html += `</div>`;
 
   for (let i = 0; i < samples.length; i++) {

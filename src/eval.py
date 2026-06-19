@@ -72,7 +72,11 @@ def _run(
     print(f"Identifier precision:   {metrics.identifier_precision:.4f}")
     print(f"Identifier recall:      {metrics.identifier_recall:.4f}")
     print(f"Identifier F1:          {metrics.identifier_f1:.4f}")
-    print(f"Avg norm. edit distance:{metrics.avg_normalized_edit_distance:.4f}")
+    print(f"Avg norm. edit distance: {metrics.avg_normalized_edit_distance:.4f}")
+    print("-" * 60)
+    print(f"Total time:             {metrics.total_time_seconds:,.2f} s")
+    print(f"Avg time / sample:      {metrics.avg_time_per_sample_seconds:,.2f} s")
+    print(f"Avg time / kB:          {metrics.avg_time_per_kb_seconds:,.4f} s")
     print("=" * 60)
 
     if output_path:

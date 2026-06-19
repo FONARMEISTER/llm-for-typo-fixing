@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
@@ -58,6 +59,11 @@ class EvalMetrics:
     identifier_recall: float
     identifier_f1: float
     avg_normalized_edit_distance: float
+
+    # Timing.
+    total_time_seconds: float
+    avg_time_per_sample_seconds: float
+    avg_time_per_kb_seconds: float
 
 
 # --------------------------------------------------------------------------- #
@@ -142,7 +148,10 @@ def _process_sample(
 
 
 def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
-    """Aggregate per-sample results into :class:`EvalMetrics`."""
+    """Aggregate per-sample results into :class:`EvalMetrics`.
+
+    Timing fields are set to zero — callers should fill them in.
+    """
     total = len(results)
     if total == 0:
         return EvalMetrics(
@@ -152,6 +161,9 @@ def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
             identifier_recall=0.0,
             identifier_f1=0.0,
             avg_normalized_edit_distance=0.0,
+            total_time_seconds=0.0,
+            avg_time_per_sample_seconds=0.0,
+            avg_time_per_kb_seconds=0.0,
         )
 
     exact_matches = sum(1 for r in results if r.exact_match)
@@ -180,6 +192,9 @@ def compute_metrics(results: List[SampleResult]) -> EvalMetrics:
         identifier_recall=recall,
         identifier_f1=f1,
         avg_normalized_edit_distance=avg_edit,
+        total_time_seconds=0.0,
+        avg_time_per_sample_seconds=0.0,
+        avg_time_per_kb_seconds=0.0,
     )
 
 
@@ -274,6 +289,8 @@ def evaluate(
     # (serial) — cloud APIs benefit from 10–20 concurrent requests.
     max_parallel = getattr(model, "max_parallel_requests", 1)
 
+    t_start = time.perf_counter()
+
     if max_parallel > 1:
         # Thread-pool path — concurrent HTTP calls, rename ops serialised by GIL.
         results = _evaluate_threaded(error_samples, model, max_parallel)
@@ -292,7 +309,17 @@ def evaluate(
         model_kwargs = getattr(model, "_init_kwargs", {})
         results = _evaluate_parallel(error_samples, model_name, model_kwargs, n_workers)
 
+    elapsed = time.perf_counter() - t_start
+
     metrics = compute_metrics(results)
+
+    # Fill in timing.
+    n = len(results)
+    total_kb = sum(len(r.corrupted_code.encode("utf-8")) for r in results) / 1024.0
+    metrics.total_time_seconds = elapsed
+    metrics.avg_time_per_sample_seconds = elapsed / n if n else 0.0
+    metrics.avg_time_per_kb_seconds = elapsed / total_kb if total_kb else 0.0
+
     return results, metrics
 
 

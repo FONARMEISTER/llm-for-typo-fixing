@@ -14,6 +14,7 @@ import json
 import os
 import random
 import threading
+import time
 import uuid
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -111,6 +112,8 @@ def _eval_runner_thread(
         model = make_model(model_name, **model_kwargs)
         results: List[Any] = []
 
+        t_start = time.perf_counter()
+
         max_parallel = getattr(model, "max_parallel_requests", 1)
 
         if max_parallel > 1:
@@ -146,6 +149,11 @@ def _eval_runner_thread(
 
         # Compute final metrics.
         metrics = compute_metrics(results)
+
+        elapsed = time.perf_counter() - t_start
+        n = len(results)
+        total_kb = sum(len(r.corrupted_code.encode("utf-8")) for r in results) / 1024.0
+
         with _eval_lock:
             _running_evals[run_id]["results"] = list(results)
             _running_evals[run_id]["metrics"] = {
@@ -155,6 +163,9 @@ def _eval_runner_thread(
                 "identifier_recall": metrics.identifier_recall,
                 "identifier_f1": metrics.identifier_f1,
                 "avg_normalized_edit_distance": metrics.avg_normalized_edit_distance,
+                "total_time_seconds": elapsed,
+                "avg_time_per_sample_seconds": elapsed / n if n else 0.0,
+                "avg_time_per_kb_seconds": elapsed / total_kb if total_kb else 0.0,
             }
             _running_evals[run_id]["done"] = True
 
