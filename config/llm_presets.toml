@@ -22,6 +22,20 @@ temperature = 0
 max_parallel_requests = 15
 system_prompt = "You are an expert code reviewer. Your task is to identify and fix typographical errors in Python identifiers. Return only a JSON object with corrections, no other text."
 
+["llama-3.2-1b"]
+base_url = "http://127.0.0.1:12434/v1"
+model = "llama-3.2-1b"
+max_tokens = 1024
+temperature = 0
+system_prompt = "You are an expert code reviewer. Your task is to identify and fix typographical errors in Python identifiers. Return only a JSON object with corrections, no other text."
+
+["qwen-3.5-0.8b"]
+base_url = "http://127.0.0.1:12434/v1"
+model = "qwen-3.5-0.8b"
+max_tokens = 1024
+temperature = 0
+system_prompt = "You are an expert code reviewer. Your task is to identify and fix typographical errors in Python identifiers. Return only a JSON object with corrections, no other text."
+
 ["gemma4-e2b"]
 base_url = "http://127.0.0.1:12434/v1"
 model = "gemma4-e2b"
