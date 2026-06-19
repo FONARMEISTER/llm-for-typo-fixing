@@ -127,7 +127,8 @@ def _eval_runner_thread(
                         orig_idx = futures[future]
                         print(f"[viewer] Sample {orig_idx} failed: {exc}")
                         continue
-                    results.append(result)
+                    if result is not None:
+                        results.append(result)
                     with _eval_lock:
                         _running_evals[run_id]["results"] = list(results)
             # Restore original ordering after thread-pool finish.
@@ -138,7 +139,8 @@ def _eval_runner_thread(
             # Serial path — local models or non-LLM.
             for idx, (sample, orig_idx) in enumerate(error_samples):
                 result = _process_sample(sample, orig_idx, model)
-                results.append(result)
+                if result is not None:
+                    results.append(result)
                 with _eval_lock:
                     _running_evals[run_id]["results"] = list(results)
 

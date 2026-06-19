@@ -306,7 +306,7 @@ def inject_typos(
     try:
         def_positions = _extract_renameable_identifiers(source)
     except Exception:
-        # libcst internal error — return clean.
+        # Cannot parse this source — return clean (no typos injected).
         return CorruptionResult(
             original=source,
             corrupted=source,

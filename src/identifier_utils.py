@@ -7,6 +7,12 @@ Shared by :mod:`typo_injector` (dataset generation) and :mod:`harness`
 (model evaluation).
 
 Thread-safe — no shared mutable state, no file cache.
+
+Raises
+------
+:class:`UnparseableCodeError`
+    When libcst cannot parse the source code (Python 2 syntax, merge
+    conflict markers, etc.).  Callers should skip such samples.
 """
 
 from __future__ import annotations
@@ -21,6 +27,19 @@ from libcst.metadata import (
     PositionProvider,
     ScopeProvider,
 )
+
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class UnparseableCodeError(Exception):
+    """Raised when libcst cannot parse the source code.
+
+    This happens with Python 2 syntax, merge conflict markers, or other
+    invalid Python 3 constructs.  Callers should skip the offending sample.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Name protection
@@ -87,8 +106,21 @@ def extract_renameable_identifiers(
 
     Filters out keywords, builtins, ``self``/``cls``, dunders, and
     import-originated names.
+
+    Returns an empty dict if the source cannot be parsed (e.g., Python 2
+    syntax, merge conflict markers).
+
+    Raises
+    ------
+    UnparseableCodeError
+        If the source cannot be parsed by libcst.
     """
-    module = cst.parse_module(source)
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError:
+        raise UnparseableCodeError(
+            f"Cannot parse source: {cst.ParserSyntaxError}"
+        ) from None
     wrapper = MetadataWrapper(module)
     scopes_map = wrapper.resolve(ScopeProvider)
     positions = wrapper.resolve(PositionProvider)
@@ -153,11 +185,24 @@ def apply_rename(
     both the definition and all of its references.
 
     If a name is defined in two scopes, both are renamed.
+
+    Returns *source* unchanged if it cannot be parsed (e.g., Python 2
+    syntax).
+
+    Raises
+    ------
+    UnparseableCodeError
+        If the source cannot be parsed by libcst.
     """
     if not rename_map:
         return source
 
-    module = cst.parse_module(source)
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError:
+        raise UnparseableCodeError(
+            f"Cannot parse source: {cst.ParserSyntaxError}"
+        ) from None
     wrapper = MetadataWrapper(module)
     scopes_map = wrapper.resolve(ScopeProvider)
 
@@ -204,9 +249,19 @@ def apply_rename_single(
     of the same name in its scope plus all of their references.
 
     Returns the modified source, or the original if no assignment was
-    found at ``(line, col)``.
+    found at ``(line, col)`` or if the source cannot be parsed.
+
+    Raises
+    ------
+    UnparseableCodeError
+        If the source cannot be parsed by libcst.
     """
-    module = cst.parse_module(source)
+    try:
+        module = cst.parse_module(source)
+    except cst.ParserSyntaxError:
+        raise UnparseableCodeError(
+            f"Cannot parse source: {cst.ParserSyntaxError}"
+        ) from None
     wrapper = MetadataWrapper(module)
     scopes_map = wrapper.resolve(ScopeProvider)
     positions = wrapper.resolve(PositionProvider)

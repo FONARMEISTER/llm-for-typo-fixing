@@ -16,7 +16,11 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from Levenshtein import distance as _lev_distance
 from tqdm import tqdm
 
-from .identifier_utils import apply_rename, extract_renameable_identifiers
+from .identifier_utils import (
+    UnparseableCodeError,
+    apply_rename,
+    extract_renameable_identifiers,
+)
 from .models import NameFixer, make_model
 
 
@@ -79,19 +83,29 @@ def _normalized_edit_distance(pred: str, gt: str) -> float:
     return _lev_distance(pred, gt) / max_len
 
 
-def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
+def _process_sample(
+    sample: dict,
+    index: int,
+    model: NameFixer,
+) -> Optional[SampleResult]:
     """Run one sample through the model pipeline.
 
     1. Extract identifiers from corrupted code.
     2. Ask model for fixes.
     3. Apply all fixes in a single libcst pass (no re-extraction needed).
     4. Return the result.
+
+    Returns ``None`` if the code cannot be parsed (Python 2 syntax, merge
+    conflict markers) — such samples should be silently skipped.
     """
     corrupted = sample["code"]
     ground_truth = sample["fixed"]
 
     # Extract identifiers from corrupted code.
-    identifiers = extract_renameable_identifiers(corrupted)
+    try:
+        identifiers = extract_renameable_identifiers(corrupted)
+    except UnparseableCodeError:
+        return None
     all_names = list(identifiers.keys())
 
     # Get model suggestions.
@@ -101,7 +115,10 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
     fixes = {k: v for k, v in fixes.items() if k != v}
 
     # Apply all fixes at once — libcst handles scope awareness internally.
-    predicted = apply_rename(corrupted, fixes) if fixes else corrupted
+    try:
+        predicted = apply_rename(corrupted, fixes) if fixes else corrupted
+    except UnparseableCodeError:
+        return None
 
     # Ground-truth edit info from the dataset record.
     gt_edits = sample.get("edits", [])
@@ -203,11 +220,14 @@ def _per_sample_identifier_counts(result: SampleResult) -> Tuple[int, int, int]:
     return tp, fp, fn
 
 
-def _eval_worker(payload: Tuple[dict, int, str, dict]) -> SampleResult:
+def _eval_worker(payload: Tuple[dict, int, str, dict]) -> Optional[SampleResult]:
     """Process one sample in a child process — free function for pickling.
 
     libcst is thread-safe and process-safe by design — each process has an
-    independent memory space, and libcst has no shared file cache."""
+    independent memory space, and libcst has no shared file cache.
+
+    Returns ``None`` if the sample cannot be parsed.
+    """
     sample, index, model_name, model_kwargs = payload
 
     model = make_model(model_name, **model_kwargs)
@@ -261,7 +281,9 @@ def evaluate(
         # Serial path — no pickling overhead, simpler debugging.
         results: List[SampleResult] = []
         for sample, idx in tqdm(error_samples, desc="Evaluating", unit="sample"):
-            results.append(_process_sample(sample, idx, model))
+            sr = _process_sample(sample, idx, model)
+            if sr is not None:
+                results.append(sr)
     else:
         # Parallel path — each worker creates its own model copy.
         model_name = model.name  # type: ignore[attr-defined]
@@ -305,7 +327,9 @@ def _run_threaded(
             for future in as_completed(futures):
                 idx, sample = futures[future]
                 try:
-                    results.append(future.result())
+                    result = future.result()
+                    if result is not None:
+                        results.append(result)
                 except Exception as exc:
                     tqdm.write(f"Sample {idx} failed: {exc}")
                 pbar.update(1)
@@ -330,7 +354,9 @@ def _evaluate_parallel(
         with tqdm(total=len(payloads), desc="Evaluating (parallel)", unit="sample") as pbar:
             for future in as_completed(futures):
                 try:
-                    results.append(future.result())
+                    result = future.result()
+                    if result is not None:
+                        results.append(result)
                 except Exception as exc:
                     sample, idx = futures[future][:2]
                     tqdm.write(f"Worker failed for sample {idx}: {exc}")

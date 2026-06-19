@@ -84,8 +84,6 @@ def _emit(snippet: str, rng: random.Random, args: argparse.Namespace) -> Iterabl
 
 def _worker(payload: tuple) -> tuple[str, List[dict]]:
     """Process a single snippet — runs in a child process."""
-    :mod:`typo_injector`).  No extra setup is needed here.
-    """
     snippet, seed, args_dict = payload
 
     rng = random.Random(seed)
