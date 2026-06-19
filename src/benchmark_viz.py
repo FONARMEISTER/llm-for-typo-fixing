@@ -116,31 +116,30 @@ def _bar_chart(
 
 
 def plot_per_dataset(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
-    """For each dataset, produce a single figure with 4 subplots:
-    EM, Precision, Recall, F1 — one bar per model.
-    """
+    """For each dataset, produce four separate bar charts — one per metric."""
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    metrics = [
+        ("exact_match_rate", "Exact Match", ".1%", (0.0, 1.0)),
+        ("identifier_precision", "Precision", ".1%", (0.0, 1.0)),
+        ("identifier_recall", "Recall", ".1%", (0.0, 1.0)),
+        ("identifier_f1", "F1", ".1%", (0.0, 1.0)),
+    ]
 
     for ds_key, models_dict in results.items():
         ordered = model_order(list(models_dict.keys()))
-        em_vals = [models_dict[m]["exact_match_rate"] for m in ordered]
-        prec_vals = [models_dict[m]["identifier_precision"] for m in ordered]
-        rec_vals = [models_dict[m]["identifier_recall"] for m in ordered]
-        f1_vals = [models_dict[m]["identifier_f1"] for m in ordered]
+        for metric_key, title, fmt, ylim in metrics:
+            values = [models_dict[m][metric_key] for m in ordered]
 
-        fig, axes = plt.subplots(1, 4, figsize=(max(18, len(ordered) * 3), 5))
-        fig.suptitle(f"Dataset: {ds_key}", fontsize=13, fontweight="bold")
-
-        _bar_chart(axes[0], ordered, em_vals, "Exact Match")
-        _bar_chart(axes[1], ordered, prec_vals, "Precision")
-        _bar_chart(axes[2], ordered, rec_vals, "Recall")
-        _bar_chart(axes[3], ordered, f1_vals, "F1")
-
-        fig.tight_layout()
-        out_path = PLOTS_DIR / f"bars_{ds_key}.png"
-        fig.savefig(out_path, dpi=150)
-        plt.close(fig)
-        print(f"Saved {out_path}")
+            fig, ax = plt.subplots(figsize=(max(6, len(ordered) * 1.5), 4.5))
+            fig.suptitle(f"Dataset: {ds_key} — {title}",
+                         fontsize=11, fontweight="bold")
+            _bar_chart(ax, ordered, values, title, ylim=ylim, fmt=fmt)
+            fig.tight_layout()
+            out_path = PLOTS_DIR / f"bars_{ds_key}_{title.lower().replace(' ', '_')}.png"
+            fig.savefig(out_path, dpi=150)
+            plt.close(fig)
+            print(f"Saved {out_path}")
 
 
 # ------------------------------------------------------------------ #
