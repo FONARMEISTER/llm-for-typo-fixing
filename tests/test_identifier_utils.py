@@ -622,5 +622,43 @@ class EdgeCaseTests(unittest.TestCase):
                                       f"rename on '{label}' should return dict")
 
 
+# --------------------------------------------------------------------------- #
+# 6. Invalid identifier filtering
+# --------------------------------------------------------------------------- #
+
+
+class InvalidIdentifierTests(unittest.TestCase):
+    """Tests for ``_is_valid_identifier`` and the filtering in ``apply_rename``."""
+
+    def test_valid_identifiers(self):
+        from src.identifier_utils import _is_valid_identifier
+        for name in ("x", "foo", "my_var", "camelCase", "_private",
+                     "HTTP2", "__dunder__", "α", "a1"):
+            with self.subTest(name=name):
+                self.assertTrue(_is_valid_identifier(name))
+
+    def test_invalid_identifiers(self):
+        from src.identifier_utils import _is_valid_identifier
+        for name in ("is-prime", "123abc", "a.b", "has space",
+                     "", "x+y", "a@b"):
+            with self.subTest(name=name):
+                self.assertFalse(_is_valid_identifier(name))
+
+    def test_apply_rename_filters_invalid_targets(self):
+        """Invalid rename targets are silently filtered out."""
+        from src.identifier_utils import apply_rename
+        source = "x = 1\ny = x + 2"
+        # "x" → "not-valid" is invalid, "y" → "z" is valid.
+        result = apply_rename(source, {"x": "not-valid", "y": "z"})
+        self.assertEqual(result, "x = 1\nz = x + 2")
+
+    def test_apply_rename_all_invalid_returns_source(self):
+        """If all rename targets are invalid, source is returned unchanged."""
+        from src.identifier_utils import apply_rename
+        source = "x = 1"
+        result = apply_rename(source, {"x": "bad-name"})
+        self.assertEqual(result, source)
+
+
 if __name__ == "__main__":
     unittest.main()

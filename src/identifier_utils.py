@@ -89,6 +89,19 @@ def _is_import_or_builtin(assignment) -> bool:
     return name.endswith("ImportAssignment") or name.endswith("BuiltinAssignment")
 
 
+def _is_valid_identifier(name: str) -> bool:
+    """Check whether *name* is a valid Python identifier.
+
+    Uses libcst's own validation — names with hyphens, leading digits,
+    or other invalid characters will be rejected by :class:`cst.Name`.
+    """
+    try:
+        cst.Name(name)
+    except cst.CSTValidationError:
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # extract_renameable_identifiers
 # ---------------------------------------------------------------------------
@@ -186,14 +199,24 @@ def apply_rename(
 
     If a name is defined in two scopes, both are renamed.
 
-    Returns *source* unchanged if it cannot be parsed (e.g., Python 2
-    syntax).
+    Targets that are not valid Python identifiers (e.g., names with
+    hyphens) are silently skipped.
 
     Raises
     ------
     UnparseableCodeError
         If the source cannot be parsed by libcst.
     """
+    if not rename_map:
+        return source
+
+    # Filter out targets that are not valid Python identifiers.
+    # Models sometimes hallucinate names with hyphens or other invalid
+    # characters.
+    rename_map = {
+        k: v for k, v in rename_map.items()
+        if _is_valid_identifier(v)
+    }
     if not rename_map:
         return source
 
