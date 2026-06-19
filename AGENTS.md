@@ -7,7 +7,8 @@ src/
   identifier_utils.py   — Shared Jedi helpers (name extraction, rename).
   text_utils.py          — CamelCase / snake_case splitting and reassembly.
   typo_injector.py       — Dataset generator: injects textual typos into Python code.
-  sources.py             — Dataset sources (demo snippets, MBPP, etc.).
+  sources.py             — Dataset sources (demo snippets, MBPP, Magicoder, CodeAlpaca,
+                            GitHub Python).
   build_dataset.py       — CLI that glues sources + injector → JSONL dataset.
   harness.py             — Evaluation pipeline: JSONL → model → Jedi rename → metrics.
   eval.py                — CLI for running evaluation.
@@ -81,9 +82,17 @@ assume a single file.  Our `apply_jedi_rename()` reflects this (returns
 ### Internal Jedi errors on edge cases
 
 Some code triggers internal Jedi bugs (e.g., `ValueError: too many values to
-unpack` in type inference).  Our `inject_typos` catches all `Exception` around
-`_apply_rename` and skips the offending edit.  If you add new Jedi call sites,
-wrap them similarly.
+unpack` in type inference, ``KeyError`` in the parso parser cache when
+resolving ``from X import *`` through installed packages).
+``inject_typos()`` now catches all ``Exception`` around **every** Jedi call
+site (initial extraction, per-rename re-extraction, occurrence counting) and
+skips the offending snippet/rename gracefully.  If you add new Jedi call
+sites, wrap them similarly.
+
+Real-world code often contains invalid escape sequences (``\i`` instead of
+``\\i`` or ``r"\i"``).  ``parso`` emits ``SyntaxWarning`` for these.
+``identifier_utils.py`` suppresses this warning at module level; dataset
+building and evaluation paths also apply the filter explicitly.
 
 ## Dataset format (JSONL)
 
@@ -195,6 +204,30 @@ CLI flags: `--vocab-type`, `--lev-weight`, `--detect-weight`, etc.
 - Reassembles via `text_utils.reassemble_identifier()` (preserves case).
 - Skips names shorter than 3 characters.
 
+## Typos baseline
+
+- Uses the ``typos`` CLI tool (source-code-aware spell corrector) via subprocess.
+- Feeds the full source code to ``typos - --write-changes`` and maps corrected
+  identifiers back to the original names by position matching (±5 columns).
+- High precision, low recall (curated dictionary misses many typos).
+
+## LLM API baseline
+
+- Uses the ``openai`` Python package to call any OpenAI-compatible chat
+  completions API (local llama.cpp, llama-swap, Ollama, vLLM, OpenAI, etc.).
+- ``response_format={"type": "json_object"}`` for structured JSON output.
+- Inference presets are configured in ``config/llm_presets.toml`` (TOML).
+  Each preset specifies: ``base_url``, ``model``, ``api_key_env`` (or ``""``),
+  ``max_tokens``, ``temperature``, ``system_prompt``.
+- Supports both reasoning models (Gemma 4, Qwen 3.5 with ``reasoning_content``)
+  and classic models.
+- Exponential backoff retry on transient errors (429, 5xx, timeout,
+  connection): up to 5 retries (configurable via ``max_retries`` and
+  ``retry_base_delay``).  Respects ``Retry-After`` headers.
+- CLI usage: ``make eval-llm PRESET=gemma4-26b`` or:
+  ``uv run python -m src.eval --model llm_api --preset gemma4-26b --dataset data/demo.jsonl``
+- Demo results (Gemma 4 26B Q6K): 84.6% EM, 100% precision, 89.5% recall, 94.5% F1.
+
 ## Identifier splitting (text_utils)
 
 - `split_identifier("myCamel_Snake")` → `["my", "Camel", "Snake"]`.
@@ -206,8 +239,10 @@ CLI flags: `--vocab-type`, `--lev-weight`, `--detect-weight`, etc.
 ```bash
 make test              # all tests (pytest)
 make build-demo        # regenerate data/demo.jsonl
+make build-github-python  # build test dataset from real GitHub Python files
 make build-all         # regenerate all datasets (parallel by default)
 make eval              # spellchecker on demo dataset
+make eval-llm PRESET=gemma4-26b  # LLM model via llama-swap on demo dataset
 make viewer            # HTML dataset viewer at localhost:8765
 make clean             # delete generated data
 ```
@@ -229,10 +264,26 @@ of worker count.
 - The project uses Jupytext: `.ipynb` + `.py` pairs — edit the `.py` file,
   ignore the `.ipynb`.
 
+## Commit message conventions
+
+- **Class names** in square brackets: ``[LLMAPIFixer]``, ``[NameFixer]``.
+- **Functions, methods, modules, files** in backticks with ``()``:
+  `` `fix_names()` ``, `` `_process_sample()` ``, `` `evaluate()` ``.
+- Qualify method with class when ambiguous: `` `LLMAPIFixer.from_preset()` ``.
+- Always parentheses after function/method name.
+- **Don't** append test-count footnotes (e.g. «All 57 tests pass») — every
+  commit is expected to keep the suite green unless stated otherwise.
+- **Don't** repeat in prose what the diff already says.  Focus on *why* and
+  *impact*: what changed behaviourally, what edge case was fixed, what new
+  capability is available.  Write for a future reader (yourself, another
+  agent, or a teammate) who is skimming ``git log`` to understand the
+  project's history.
+
 ## Dependencies (pyproject.toml)
 
 - `jedi>=0.20.0` — scope-aware Python refactoring.
 - `pyspellchecker>=0.8.0` — baseline spellchecker.
 - `Levenshtein>=0.27.0` — C-accelerated edit distance (not `python-Levenshtein`).
 - `datasets>=2.14.0` — HuggingFace datasets (MBPP, etc.).
-- `tqdm>=4.65.0` — progress bars.
+- `openai` — OpenAI-compatible client for LLM baseline.
+- `torch>=2.0.0`, `transformers>=4.30.0` — optional (``[ml]`` extra) for `typo_datasets.py` PyTorch data loaders.

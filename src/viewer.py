@@ -16,6 +16,7 @@ import random
 import threading
 import uuid
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional
@@ -30,15 +31,20 @@ TEMPLATE_PATH = Path(__file__).resolve().parent / "viewer_template.html"
 # Support both `python -m src.viewer` and `python src/viewer.py`.
 try:
     from .models import MODEL_REGISTRY, make_model
+    from .models.llm_api import _load_presets
     from .harness import _iter_jsonl, _process_sample, compute_metrics
 except ImportError:
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent))
     from models import MODEL_REGISTRY, make_model  # type: ignore[no-redef]
+    from models.llm_api import _load_presets  # type: ignore[no-redef]
     from harness import _iter_jsonl, _process_sample, compute_metrics  # type: ignore[no-redef]
 
 # Load the HTML template at import time.
 _HTML_PAGE = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+# Default preset config path.
+_DEFAULT_PRESET_CONFIG = str(PROJECT_ROOT / "config" / "llm_presets.toml")
 
 
 # --------------------------------------------------------------------------- #
@@ -58,6 +64,8 @@ def _eval_runner_thread(
     max_samples: Optional[int],
     random_sample: bool,
     gector_model_dir: Optional[str] = None,
+    preset: Optional[str] = None,
+    llm_config: str = "config/llm_presets.toml",
 ) -> None:
     """Run evaluation in a background thread, updating ``_running_evals``.
 
@@ -103,17 +111,43 @@ def _eval_runner_thread(
                     "Enter the path in the 'GECToR model dir' field."
                 )
             model_kwargs["model_dir"] = gector_model_dir
+        if model_name == "llm_api" and preset:
+            model_kwargs["preset"] = preset
+            model_kwargs["config_path"] = llm_config
 
         model = make_model(model_name, **model_kwargs)
         results: List[Any] = []
 
-        for idx, (sample, orig_idx) in enumerate(error_samples):
-            # Use the original sample index so the frontend can match back.
-            result = _process_sample(sample, orig_idx, model)
-            results.append(result)
+        max_parallel = getattr(model, "max_parallel_requests", 1)
 
+        if max_parallel > 1:
+            # Thread-pool path — concurrent HTTP calls for cloud APIs.
+            with ThreadPoolExecutor(max_workers=max_parallel) as ex:
+                futures = {
+                    ex.submit(_process_sample, s, oi, model): oi
+                    for s, oi in error_samples
+                }
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                    except Exception as exc:
+                        orig_idx = futures[future]
+                        print(f"[viewer] Sample {orig_idx} failed: {exc}")
+                        continue
+                    results.append(result)
+                    with _eval_lock:
+                        _running_evals[run_id]["results"] = list(results)
+            # Restore original ordering after thread-pool finish.
+            results.sort(key=lambda r: r.sample_index)
             with _eval_lock:
                 _running_evals[run_id]["results"] = list(results)
+        else:
+            # Serial path — local models or non-LLM.
+            for idx, (sample, orig_idx) in enumerate(error_samples):
+                result = _process_sample(sample, orig_idx, model)
+                results.append(result)
+                with _eval_lock:
+                    _running_evals[run_id]["results"] = list(results)
 
         # Compute final metrics.
         metrics = compute_metrics(results)
@@ -170,6 +204,9 @@ class _Handler(SimpleHTTPRequestHandler):
         # List available GECToR checkpoint directories.
         if path == "/api/gector_checkpoints":
             self._serve_json(self._list_gector_checkpoints())
+        # List available LLM presets.
+        if path == "/api/presets":
+            self._serve_json(self._list_presets())
             return
 
         # Poll eval progress.
@@ -281,6 +318,13 @@ class _Handler(SimpleHTTPRequestHandler):
                 rel = str(ckpt_dir)
             checkpoints.append({"label": rel, "path": rel})
         return checkpoints
+    def _list_presets(self):
+        """Return available LLM preset names from the config file."""
+        try:
+            presets = _load_presets(_DEFAULT_PRESET_CONFIG)
+            return sorted(presets.keys())
+        except Exception:
+            return []
 
     # ---- JSONL serving -------------------------------------------------------
 
@@ -342,6 +386,8 @@ class _Handler(SimpleHTTPRequestHandler):
         max_samples_raw = params.get("max_samples", None)
         random_sample = params.get("random_sample", True)
         gector_model_dir = params.get("gector_model_dir", "").strip() or None
+        preset = params.get("preset", None)
+        llm_config = params.get("llm_config", _DEFAULT_PRESET_CONFIG)
 
         # Validate dataset path (must be within DATA_DIR).
         if not dataset_path:
@@ -361,6 +407,20 @@ class _Handler(SimpleHTTPRequestHandler):
         if model_name == "gector" and not gector_model_dir:
             self.send_error(400, "GECToR requires 'gector_model_dir' parameter")
             return
+        # Validate preset if model is llm_api.
+        if isinstance(preset, str):
+            preset = preset.strip()
+        if model_name == "llm_api" and not preset:
+            # Auto-select first preset.
+            try:
+                presets = _load_presets(llm_config)
+                if presets:
+                    preset = sorted(presets.keys())[0]
+            except Exception:
+                pass
+            if not preset:
+                self.send_error(400, "Missing 'preset' parameter for llm_api model")
+                return
 
         # Parse max_samples.
         max_samples: Optional[int] = None
@@ -388,7 +448,7 @@ class _Handler(SimpleHTTPRequestHandler):
         thread = threading.Thread(
             target=_eval_runner_thread,
             args=(run_id, abs_dataset, model_name, max_samples, random_sample,
-                  gector_model_dir),
+                  gector_model_dir,                  preset, llm_config),
             daemon=True,
         )
         thread.start()

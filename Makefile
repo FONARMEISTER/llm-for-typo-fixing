@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer lint clean train-gector train-gector-all
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer lint clean train-gector train-gector-all
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -70,8 +70,18 @@ build-codealpaca:
 		--seed 42 \
 		--workers $(WORKERS)
 
+# Build the GitHub Python dataset (real OSS code, test-only).
+build-github-python:
+	uv run python -m src.build_dataset \
+		--source github_python \
+		--out data/github_python/ \
+		--variants-per-snippet 1 \
+		--max-edits 2 \
+		--p-edit 0.8 \
+		--seed 42
+
 # Build all datasets (demo, mbpp, magicoder, codealpaca).
-build-all: build-demo build-mbpp build-magicoder build-codealpaca
+build-all: build-demo build-mbpp build-magicoder build-codealpaca build-github-python
 
 # Run evaluation with the spellchecker baseline (parallel by default).
 # Usage: make eval DATASET=data/demo.jsonl MODEL=spellcheck
@@ -166,6 +176,14 @@ eval-codealpaca:
 # Usage: make eval-all MODEL=spellcheck
 # Usage: make eval-all MODEL=gector GECTOR_MODEL=models/gector-roberta
 eval-all: eval-demo eval-mbpp eval-magicoder eval-codealpaca
+# Run evaluation with an LLM model via llama-swap (serial — LLM requests are sequential anyway).
+# Usage: make eval-llm PRESET=gemma4-26b
+export PRESET=gemma4-e2b
+eval-llm:
+	uv run python -m src.eval \
+		--model llm_api \
+		--preset $(PRESET) \
+		--dataset data/demo.jsonl
 
 # Start the dataset viewer (opens browser).
 viewer:
@@ -181,6 +199,7 @@ clean:
 	rm -rf data/mbpp/
 	rm -rf data/magicoder/
 	rm -rf data/codealpaca/
+	rm -rf data/github_python/
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -name '*.pyc' -delete
 

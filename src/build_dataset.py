@@ -29,6 +29,7 @@ def _build_kwargs(args: argparse.Namespace, split: str) -> dict:
         kwargs["max_samples"] = args.max_samples
     if args.source in ("mbpp", "code_search_net", "magicoder", "codealpaca"):
         kwargs["split"] = split
+        kwargs["split"] = split
     return kwargs
 
 
@@ -89,6 +90,14 @@ def _worker(payload: tuple) -> tuple[str, List[dict]]:
     :mod:`typo_injector`).  No extra setup is needed here.
     """
     snippet, seed, args_dict = payload
+    # Suppress SyntaxWarning from parso about invalid escape sequences in
+    # real-world code (e.g., "\i" in non-raw strings).
+    import warnings
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
+
+    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
+    import jedi.settings
+    jedi.settings.cache_directory = None
 
     rng = random.Random(seed)
     args = argparse.Namespace(**args_dict)
@@ -179,7 +188,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source", default="demo",
-        choices=["demo", "mbpp", "code_search_net", "magicoder", "codealpaca"],
+        choices=["demo", "mbpp", "code_search_net", "magicoder", "codealpaca", "github_python"],
     )
     parser.add_argument("--out", required=True, help="output directory or file path")
     parser.add_argument(
@@ -211,7 +220,14 @@ def main() -> None:
     out_dir = args.out
     if not out_dir.endswith("/"):
         if os.path.splitext(out_dir)[1]:  # Has extension → treat as file.
-            splits = ["train"]
+            # Pick the first available split (some sources only have test).
+            known_splits = _KNOWN_SPLIT_SIZES.get(args.source, {})
+            file_split = "train"
+            for candidate in ("test", "validation", "train"):
+                if known_splits.get(candidate, 0) > 0:
+                    file_split = candidate
+                    break
+            splits = [file_split]
             out_base = out_dir
             out_dir = os.path.dirname(out_dir) or "."
             os.makedirs(out_dir, exist_ok=True)

@@ -12,6 +12,7 @@ import keyword
 import pathlib
 import shutil
 import tempfile
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import jedi
@@ -30,6 +31,11 @@ import jedi.settings
 _jedi_cache_dir = tempfile.mkdtemp(prefix="jedi_proc_")
 jedi.settings.cache_directory = pathlib.Path(_jedi_cache_dir)
 atexit.register(shutil.rmtree, _jedi_cache_dir, True)
+
+# Real-world code often contains invalid escape sequences (e.g., "\i" in
+# non-raw strings).  parso emits SyntaxWarning for these, which is just noise
+# for our refactoring use case.
+warnings.filterwarnings("ignore", category=SyntaxWarning)
 
 # Names we never treat as renameable: language keywords, soft keywords,
 # builtins, and idiomatic "fixed" names.
@@ -69,7 +75,13 @@ def extract_renameable_identifiers(
         if is_protected_name(name):
             continue
 
-        if n.type not in ("statement", "function", "class", "param"):
+        # ``n.type`` triggers Jedi's full type-inference chain, which may
+        # follow imports into installed venv packages and hit internal
+        # parso-cache KeyError bugs.  Silently skip those names.
+        try:
+            if n.type not in ("statement", "function", "class", "param"):
+                continue
+        except Exception:
             continue
 
         line = n.line

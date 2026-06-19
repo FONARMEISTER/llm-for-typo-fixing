@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
@@ -89,6 +89,11 @@ def _process_sample(sample: dict, index: int, model: NameFixer) -> SampleResult:
     """
     corrupted = sample["code"]
     ground_truth = sample["fixed"]
+
+    # Suppress SyntaxWarning from parso about invalid escape sequences in
+    # real-world code.
+    import warnings
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
 
     # Extract identifiers from corrupted code.
     identifiers = extract_renameable_identifiers(corrupted)
@@ -292,7 +297,15 @@ def evaluate(
     # Auto-detect worker count.
     n_workers = workers if workers > 0 else os.cpu_count() or 1
 
-    if n_workers <= 1:
+    # If the model supports parallel API requests, use a thread pool to
+    # overlap I/O-bound HTTP calls.  Local models get max_parallel_requests=1
+    # (serial) — cloud APIs benefit from 10–20 concurrent requests.
+    max_parallel = getattr(model, "max_parallel_requests", 1)
+
+    if max_parallel > 1:
+        # Thread-pool path — concurrent HTTP calls, Jedi ops serialised by GIL.
+        results = _evaluate_threaded(error_samples, model, max_parallel)
+    elif n_workers <= 1:
         # Serial path — no pickling overhead, simpler debugging.
         results: List[SampleResult] = []
         for sample, idx in tqdm(error_samples, desc="Evaluating", unit="sample"):
@@ -307,6 +320,36 @@ def evaluate(
 
     metrics = compute_metrics(results)
     return results, metrics
+
+
+def _evaluate_threaded(
+    error_samples: List[Tuple[dict, int]],
+    model: NameFixer,
+    max_workers: int,
+) -> List[SampleResult]:
+    """Evaluate samples using :class:`ThreadPoolExecutor` for concurrent
+    I/O-bound LLM API calls.  Jedi rename operations are serialised by
+    the GIL and are thread-safe within a single process."""
+    results: List[SampleResult] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {
+            ex.submit(_process_sample, s, i, model): (i, s)
+            for s, i in error_samples
+        }
+        desc = f"Evaluating ({max_workers} threads)"
+        with tqdm(total=len(futures), desc=desc, unit="sample") as pbar:
+            for future in as_completed(futures):
+                idx, sample = futures[future]
+                try:
+                    results.append(future.result())
+                except Exception as exc:
+                    tqdm.write(f"Sample {idx} failed: {exc}")
+                pbar.update(1)
+
+    # Restore original ordering.
+    results.sort(key=lambda r: r.sample_index)
+    return results
 
 
 def _evaluate_parallel(

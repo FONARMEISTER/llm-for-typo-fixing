@@ -25,8 +25,19 @@ def _run(
     max_samples: Optional[int] = None,
     workers: int = 1,
     gector_model: Optional[str] = None,
+    preset: Optional[str] = None,
+    llm_config: str = "config/llm_presets.toml",
 ) -> None:
-    kwargs = {}
+    model_kwargs: dict = {}
+    display_name = model_name
+    if model_name == "llm_api":
+        if preset:
+            model_kwargs["preset"] = preset
+            model_kwargs["config_path"] = llm_config
+            display_name = f"llm_api ({preset})"
+        else:
+            print("Error: --preset is required when --model llm_api")
+            return
     if model_name == "gector":
         if gector_model is None:
             print(
@@ -34,12 +45,18 @@ def _run(
                 file=sys.stderr,
             )
             sys.exit(1)
-        kwargs["model_dir"] = gector_model
-    model = make_model(model_name, **kwargs)
-    print(f"Model: {model_name}")
+        model_kwargs["model_dir"] = gector_model
+    model = make_model(model_name, **model_kwargs)
+    print(f"Model: {display_name}")
     print(f"Dataset: {dataset_path}")
-    n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
-    print(f"Workers: {n_workers}")
+
+    max_parallel = getattr(model, "max_parallel_requests", 1)
+    if max_parallel > 1:
+        print(f"Parallelism: {max_parallel} threads (API concurrency)")
+    else:
+        n_workers = workers if workers > 0 else __import__("os").cpu_count() or 1
+        print(f"Workers: {n_workers}")
+
     if max_samples:
         print(f"Max samples: {max_samples}")
 
@@ -110,10 +127,18 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "--gector-model", default=None, metavar="CKPT_DIR",
         help="Path to GECToR checkpoint directory (required when --model gector).",
     )
+    parser.add_argument("--preset", default=None,
+        help="Inference preset name (required when --model llm_api).",
+    )
+    parser.add_argument(
+        "--llm-config", default="config/llm_presets.toml",
+        help="Path to TOML preset config file (default: config/llm_presets.toml).",
+    )
     args = parser.parse_args(argv)
     _run(
         args.model, args.dataset, args.output, args.max_samples, args.workers,
         gector_model=args.gector_model,
+        preset=args.preset, llm_config=args.llm_config,
     )
 
 
