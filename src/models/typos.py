@@ -2,8 +2,8 @@
 
 Uses `typos <https://github.com/crate-ci/typos>`_ — a source-code-aware
 spelling corrector — to fix corrupted identifier names.  The full source
-code is fed to ``typos - --write-changes`` via subprocess, then Jedi is
-used to extract the corrected identifiers from the output.
+code is fed to ``typos - --write-changes`` via subprocess, and identifier
+names are mapped between original and corrected code by position.
 """
 
 from __future__ import annotations

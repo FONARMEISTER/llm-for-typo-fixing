@@ -5,11 +5,11 @@ Typos are injected into:
   * Comments.
 
 The key requirement: corrupted code MUST remain semantically equivalent to
-the original. We use Jedi_ for scope-aware refactoring, so that renaming a
+the original. We use libcst_ for scope-aware refactoring, so that renaming a
 variable in one scope does not accidentally shadow or clobber a variable
 with the same name in another scope.
 
-.. _Jedi: https://jedi.readthedocs.io/en/latest/
+.. _libcst: https://libcst.readthedocs.io/
 
 The public entry point is :func:`inject_typos`.
 """
@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .identifier_utils import (
     _PROTECTED_NAMES,
-    apply_jedi_rename,
+    apply_rename_single,
     extract_renameable_identifiers as _extract_renameable_identifiers,
 )
 
@@ -167,17 +167,9 @@ def _is_valid_identifier(name: str) -> bool:
     return name.isidentifier() and not keyword.iskeyword(name)
 
 
-# Re-exported from ``identifier_utils`` for backward compatibility.
-# _extract_renameable_identifiers is imported above.
-# _apply_rename is a thin wrapper over apply_jedi_rename below.
-
-
 def _apply_rename(source: str, line: int, col: int, new_name: str) -> str:
-    """Single-file wrapper around ``apply_jedi_rename``."""
-    changed = apply_jedi_rename(source, line, col, new_name)
-    if changed:
-        return next(iter(changed.values()))
-    return source
+    """Single-identifier rename at a specific position — used during typo injection."""
+    return apply_rename_single(source, line, col, new_name)
 
 
 def _count_name_occurrences(source: str, name: str) -> int:
@@ -289,7 +281,7 @@ def inject_typos(
 ) -> CorruptionResult:
     """Inject textual typos into ``source``.
 
-    Identifier typos are injected via Jedi's scope-aware refactoring so that
+    Identifier typos are injected via libcst's scope-aware refactoring so that
     scoped variables (shadowed names in nested functions) are handled
     correctly and the corrupted code stays semantically equivalent.
 
@@ -314,8 +306,7 @@ def inject_typos(
     try:
         def_positions = _extract_renameable_identifiers(source)
     except Exception:
-        # Jedi internal error (parser cache corruption, type-inference
-        # edge case in third-party imports, etc.) — return clean.
+        # libcst internal error — return clean.
         return CorruptionResult(
             original=source,
             corrupted=source,
@@ -346,28 +337,17 @@ def inject_typos(
         pos = rng.choice(def_positions[name])
         chosen_renames.append((name, typo, [pos]))
 
-    # Apply renames one by one, re-extracting positions before each
-    # rename to avoid stale coordinates (an earlier rename may shift
-    # columns for identifiers on the same line).  Jedi internal errors
-    # (e.g. on type-inference edge cases) are caught and the offending
-    # rename is skipped.
+    # Apply renames one by one, re-extracting positions before each rename
+    # to avoid stale coordinates after earlier renames shift character offsets.
     corrupted = source
     applied_names: set = set()
     for original_name, typo_name, _unused_positions in chosen_renames:
         # Re-extract from the current source to get correct coordinates.
-        # Jedi may fail on already-corrupted code (internal cache bugs,
-        # type-inference edge cases) — skip the rename if it does.
-        try:
-            fresh = _extract_renameable_identifiers(corrupted)
-        except Exception:
-            continue
+        fresh = _extract_renameable_identifiers(corrupted)
         if original_name not in fresh:
             continue
         line, col = rng.choice(fresh[original_name])
-        try:
-            corrupted = _apply_rename(corrupted, line, col, typo_name)
-        except Exception:
-            continue
+        corrupted = _apply_rename(corrupted, line, col, typo_name)
         applied_names.add(original_name)
 
     # ---- Comment corruption ----

@@ -195,7 +195,7 @@ def iterative_correct(
             break  # Converged.
 
         # Apply fixes: simple string replacement of NAME tokens.
-        # The harness will later use Jedi for scope-aware renaming.
+        # The harness will apply scope-aware rename later.
         new_tokens: List[str] = []
         for ct, tag in zip(code_tokens, tags):
             if ct.is_name:

@@ -4,13 +4,13 @@
 
 ```
 src/
-  identifier_utils.py   — Shared Jedi helpers (name extraction, rename).
+  identifier_utils.py   — LibCST-based helpers (name extraction, rename).
   text_utils.py          — CamelCase / snake_case splitting and reassembly.
   typo_injector.py       — Dataset generator: injects textual typos into Python code.
   sources.py             — Dataset sources (demo snippets, MBPP, Magicoder, CodeAlpaca,
                             GitHub Python).
   build_dataset.py       — CLI that glues sources + injector → JSONL dataset.
-  harness.py             — Evaluation pipeline: JSONL → model → Jedi rename → metrics.
+  harness.py             — Evaluation pipeline: JSONL → model → rename → metrics.
   eval.py                — CLI for running evaluation.
   viewer.py              — Local HTML viewer for manual dataset inspection.
   models/
@@ -24,75 +24,23 @@ Data flows:
 1. **Dataset generation**: `sources.py` → `typo_injector.inject_typos()` → JSONL (`data/*.jsonl`).
 2. **Evaluation**: JSONL → `harness.evaluate(model, path)` → metrics.
 
-Both pipelines use `identifier_utils.extract_renameable_identifiers()` and
-`identifier_utils.apply_jedi_rename()` — scope-aware refactoring via Jedi.
+Both pipelines use `identifier_utils.extract_renameable_identifiers()` for
+scope-aware extraction and `identifier_utils.apply_rename()` for batch rename.
+`apply_rename_single()` provides position-based single-identifier rename for
+the typo injector.
 
-## Jedi API — crucial gotchas
+## LibCST scope analysis
 
-### The `path=""` slowdown
+``identifier_utils.py`` uses libcst's ``ScopeProvider`` to find all
+renameable identifiers (functions, classes, variables, parameters) while
+filtering out keywords, builtins, imports, ``self``/``cls``, and dunders.
 
-```python
-# ❌ SLOW — adds ~1.9 s overhead per call:
-jedi.Script(code=source, path="")
+``apply_rename(source, rename_map)`` renames all identifiers in a single
+CST traversal — no re-extraction needed.  ``apply_rename_single()`` renames
+a single identifier at a specific position (used during typo injection where
+one name is corrupted at a time).
 
-# ✅ Fast — omit path or pass None:
-jedi.Script(code=source)
-jedi.Script(code=source, path=None)
-```
-
-Only pass a real filesystem path when you need multi-file refactoring resolution.
-
-### Multiprocess cache corruption
-
-Parallel `ProcessPoolExecutor` workers share `~/.cache/parso/` and will
-corrupt each other's pickle files.  Inside any worker function that calls
-Jedi, do **before the first Jedi call**:
-
-```python
-import jedi.settings
-jedi.settings.cache_directory = None
-```
-
-If you see `EOFError: Ran out of input` from `parso/cache.py`, delete
-`~/.cache/parso/` and add the setting above.
-
-### Name position vs definition start position
-
-```python
-n = some_jedi_name
-# ✅ Use these for rename():
-line = n.line        # position of the NAME token (e.g., the 'c' in 'compute')
-col  = n.column
-
-# ❌ DON'T use this for rename():
-pos = n.get_definition_start_position()  # points to 'def' keyword, not the name
-```
-
-`get_definition_start_position()` returns the start of the enclosing statement
-(`def`, `class`, etc.), **not** the identifier itself.  Renaming at that
-position will fail with `RefactoringError` on already-modified code.
-
-### Multi-file refactoring
-
-`jedi.Script.rename()` returns a `Refactoring` whose `get_changed_files()`
-returns `dict[path, ChangedFile]`.  Always iterate **all** entries — never
-assume a single file.  Our `apply_jedi_rename()` reflects this (returns
-`dict[str, str]`), and single-file callers wrap it.
-
-### Internal Jedi errors on edge cases
-
-Some code triggers internal Jedi bugs (e.g., `ValueError: too many values to
-unpack` in type inference, ``KeyError`` in the parso parser cache when
-resolving ``from X import *`` through installed packages).
-``inject_typos()`` now catches all ``Exception`` around **every** Jedi call
-site (initial extraction, per-rename re-extraction, occurrence counting) and
-skips the offending snippet/rename gracefully.  If you add new Jedi call
-sites, wrap them similarly.
-
-Real-world code often contains invalid escape sequences (``\i`` instead of
-``\\i`` or ``r"\i"``).  ``parso`` emits ``SyntaxWarning`` for these.
-``identifier_utils.py`` suppresses this warning at module level; dataset
-building and evaluation paths also apply the filter explicitly.
+libcst is thread-safe by design: no shared mutable state, no file cache.
 
 ## Dataset format (JSONL)
 
@@ -109,9 +57,9 @@ building and evaluation paths also apply the filter explicitly.
 ## How the typo injector works
 
 - `inject_typos(source, rng, max_edits, p_edit, corrupt_comments, p_comment_word)`
-- Identifier corruption: extracts Jedi definitions, picks
+- Identifier corruption: extracts libcst definitions, picks
   **one random definition position per name** (even if the name is defined in
-  multiple scopes), calls Jedi `rename()` for scope-aware refactoring.
+  multiple scopes), calls ``apply_rename_single()`` for scope-aware rename.
 - Comment corruption: tokenizes source, finds `COMMENT` tokens, corrupts
   random words inside them (skipping markers like `TODO`, `FIXME`).
 - `make_typo()`: randomly applies one of 5 operations (swap, delete, duplicate,
@@ -127,12 +75,8 @@ building and evaluation paths also apply the filter explicitly.
 - `evaluate(model, dataset_path, max_samples, workers)`: reads JSONL, processes
   only `has_errors=true` samples.
 - Per sample: extracts identifiers from corrupted code, calls
-  `model.fix_names(code, names)`, applies each suggested fix via Jedi rename
-  (re-extracting positions after **each** rename — not just between different
-  names — because earlier renames shift character offsets even within the
-  same name's multiple scopes).
-  ``RefactoringError`` from Jedi is caught; failed renaming attempts skip
-  that definition position and try the next one.
+  `model.fix_names(code, names)`, applies all fixes at once via
+  ``apply_rename()`` (single libcst pass — no re-extraction needed).
 - ``model_fixes`` in :class:`SampleResult` reflects the model's **raw
   suggestions** (not just the successfully applied ones), so identifier-level
   metrics evaluate the model rather than the rename harness.
@@ -141,8 +85,7 @@ building and evaluation paths also apply the filter explicitly.
 - Parallel: ``workers=0`` auto-detects CPU count; workers re-create the model
   by calling ``make_model(model.name)``.  The serial path (``workers=1``) avoids
   pickling overhead and is the default.
-- Workers disable ``jedi.settings.cache_directory`` to prevent parso cache
-  corruption (same as in dataset building).
+- Workers use libcst which is thread-safe — no cache isolation needed.
 
 ## Model interface
 
@@ -281,7 +224,7 @@ of worker count.
 
 ## Dependencies (pyproject.toml)
 
-- `jedi>=0.20.0` — scope-aware Python refactoring.
+- ``libcst>=1.5.0`` — scope-aware Python refactoring (CST-based).
 - `pyspellchecker>=0.8.0` — baseline spellchecker.
 - `Levenshtein>=0.27.0` — C-accelerated edit distance (not `python-Levenshtein`).
 - `datasets>=2.14.0` — HuggingFace datasets (MBPP, etc.).

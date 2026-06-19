@@ -1,44 +1,31 @@
-"""Shared Jedi-based identifier utilities.
+"""Identifier extraction and rename utilities.
 
-Used by both :mod:`typo_injector` (dataset generation) and :mod:`harness`
+Uses libcst's ``ScopeProvider`` for scope-aware analysis and
+``CSTTransformer`` for single-pass multi-identifier rename.
+
+Shared by :mod:`typo_injector` (dataset generation) and :mod:`harness`
 (model evaluation).
+
+Thread-safe — no shared mutable state, no file cache.
 """
 
 from __future__ import annotations
 
-import atexit
 import builtins
 import keyword
-import pathlib
-import shutil
-import tempfile
-import warnings
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Set, Tuple
 
-import jedi
-import jedi.settings
+import libcst as cst
+from libcst.metadata import (
+    MetadataWrapper,
+    PositionProvider,
+    ScopeProvider,
+)
 
-# Give this process its own private parso cache directory.
-#
-# Setting cache_directory=None makes parso fall back to its *default* shared
-# path (~/Library/Caches/Parso on macOS).  In a multiprocessing scenario that
-# shared path is written to by every worker simultaneously, corrupting the
-# pickle files and causing "EOFError: Ran out of input".
-#
-# Using a per-process temp directory means each process has a fully isolated
-# cache — no cross-process writes, no corruption.  The directory is removed
-# automatically when the process exits via atexit.
-_jedi_cache_dir = tempfile.mkdtemp(prefix="jedi_proc_")
-jedi.settings.cache_directory = pathlib.Path(_jedi_cache_dir)
-atexit.register(shutil.rmtree, _jedi_cache_dir, True)
+# ---------------------------------------------------------------------------
+# Name protection
+# ---------------------------------------------------------------------------
 
-# Real-world code often contains invalid escape sequences (e.g., "\i" in
-# non-raw strings).  parso emits SyntaxWarning for these, which is just noise
-# for our refactoring use case.
-warnings.filterwarnings("ignore", category=SyntaxWarning)
-
-# Names we never treat as renameable: language keywords, soft keywords,
-# builtins, and idiomatic "fixed" names.
 _PROTECTED_NAMES: set[str] = (
     set(keyword.kwlist)
     | set(getattr(keyword, "softkwlist", []))
@@ -48,77 +35,226 @@ _PROTECTED_NAMES: set[str] = (
 
 
 def is_protected_name(name: str) -> bool:
+    """Return ``True`` for keywords, builtins, ``self``/``cls``, or dunders."""
     return name in _PROTECTED_NAMES or (name.startswith("__") and name.endswith("__"))
+
+
+# ---------------------------------------------------------------------------
+# CST helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_name_node(node: cst.CSTNode) -> cst.CSTNode:
+    """Extract the ``Name`` CST node from a ``FunctionDef``, ``ClassDef``,
+    ``Param``, or return the node itself if it is already a ``Name``."""
+    if isinstance(node, (cst.FunctionDef, cst.ClassDef, cst.Param)):
+        return node.name
+    return node
+
+
+def _get_name_position(
+    node: cst.CSTNode,
+    positions: Dict[cst.CSTNode, cst.metadata.CodeRange],
+) -> Tuple[int, int]:
+    """Return ``(line, column)`` of the identifier within ``node``."""
+    target = _get_name_node(node)
+    cr = positions.get(target)
+    if cr is None:
+        return (0, 0)
+    return (cr.start.line, cr.start.column)
+
+
+def _is_import_or_builtin(assignment) -> bool:
+    """Exclude ``ImportAssignment`` and ``BuiltinAssignment`` scope objects."""
+    name = type(assignment).__name__
+    return name.endswith("ImportAssignment") or name.endswith("BuiltinAssignment")
+
+
+# ---------------------------------------------------------------------------
+# extract_renameable_identifiers
+# ---------------------------------------------------------------------------
 
 
 def extract_renameable_identifiers(
     source: str,
 ) -> Dict[str, List[Tuple[int, int]]]:
-    """Return ``name -> [(line, col), ...]`` of definition positions.
+    """Return ``{name: [(line, col), ...]}`` of definition positions.
 
-    Uses Jedi for scope-aware extraction.  A name may appear multiple
-    times if it is defined in different scopes (e.g. ``result`` in both
-    ``outer()`` and ``inner()``).
+    A name may appear multiple times if defined in different scopes
+    (e.g. ``result`` in both ``outer()`` and ``inner()``).
 
-    We include ``statement``, ``function``, ``class``, and ``param``
-    definitions.
+    Includes functions, classes, variables, and parameters.
 
-    We skip keywords, builtins, protected names, names shorter than 3
-    characters, and dunder names.
+    Filters out keywords, builtins, ``self``/``cls``, dunders, and
+    import-originated names.
     """
-    script = jedi.Script(code=source)
-    names = script.get_names(all_scopes=True, definitions=True, references=False)
+    module = cst.parse_module(source)
+    wrapper = MetadataWrapper(module)
+    scopes_map = wrapper.resolve(ScopeProvider)
+    positions = wrapper.resolve(PositionProvider)
 
     result: Dict[str, List[Tuple[int, int]]] = {}
-    for n in names:
-        name = n.name
-        if is_protected_name(name):
-            continue
+    seen_scopes: Set[int] = set()
 
-        # ``n.type`` triggers Jedi's full type-inference chain, which may
-        # follow imports into installed venv packages and hit internal
-        # parso-cache KeyError bugs.  Silently skip those names.
-        try:
-            if n.type not in ("statement", "function", "class", "param"):
+    for scope in scopes_map.values():
+        if scope is None or id(scope) in seen_scopes:
+            continue
+        seen_scopes.add(id(scope))
+
+        for assignment in scope.assignments:
+            name = assignment.name
+            if is_protected_name(name) or _is_import_or_builtin(assignment):
                 continue
-        except Exception:
-            continue
-
-        line = n.line
-        col = n.column
-        if line is None or col is None:
-            continue
-
-        result.setdefault(name, []).append((line, col))
+            line, col = _get_name_position(assignment.node, positions)
+            if line == 0 and col == 0:
+                continue
+            result.setdefault(name, []).append((line, col))
 
     return result
 
 
-def apply_jedi_rename(
-    source: str, line: int, col: int, new_name: str,
-    path: Optional[str] = None,
-) -> dict[str, str]:
+# ---------------------------------------------------------------------------
+# apply_rename — batch, single-pass
+# ---------------------------------------------------------------------------
+
+
+class _MultiRenameTransformer(cst.CSTTransformer):
+    """Renames a pre-computed set of ``Name`` nodes in one pass."""
+
+    def __init__(
+        self,
+        rename_map: Dict[str, str],
+        nodes_to_rename: Set[cst.CSTNode],
+    ) -> None:
+        super().__init__()
+        self._rename_map = rename_map
+        self._nodes = nodes_to_rename
+
+    def leave_Name(
+        self,
+        original_node: cst.Name,
+        updated_node: cst.Name,
+    ) -> cst.Name:
+        if original_node in self._nodes:
+            new_value = self._rename_map.get(original_node.value)
+            if new_value is not None:
+                return updated_node.with_changes(value=new_value)
+        return updated_node
+
+
+def apply_rename(
+    source: str,
+    rename_map: Dict[str, str],
+) -> str:
+    """Rename all identifiers in ``rename_map`` in a single CST pass.
+
+    For each ``corrupted_name → fixed_name`` mapping, finds every
+    assignment (definition) of that name across all scopes, and renames
+    both the definition and all of its references.
+
+    If a name is defined in two scopes, both are renamed.
+    """
+    if not rename_map:
+        return source
+
+    module = cst.parse_module(source)
+    wrapper = MetadataWrapper(module)
+    scopes_map = wrapper.resolve(ScopeProvider)
+
+    nodes_to_rename: Set[cst.CSTNode] = set()
+    seen_scopes: Set[int] = set()
+
+    for scope in scopes_map.values():
+        if scope is None or id(scope) in seen_scopes:
+            continue
+        seen_scopes.add(id(scope))
+
+        for assignment in scope.assignments:
+            name = assignment.name
+            if name not in rename_map:
+                continue
+            # Definition site.
+            nodes_to_rename.add(_get_name_node(assignment.node))
+            # All references.
+            for access in assignment.references:
+                if isinstance(access.node, cst.Name):
+                    nodes_to_rename.add(access.node)
+
+    if not nodes_to_rename:
+        return source
+
+    transformer = _MultiRenameTransformer(rename_map, nodes_to_rename)
+    return wrapper.module.visit(transformer).code
+
+
+# ---------------------------------------------------------------------------
+# apply_rename_single — position-based rename (used by typo_injector)
+# ---------------------------------------------------------------------------
+
+
+def apply_rename_single(
+    source: str,
+    line: int,
+    col: int,
+    new_name: str,
+) -> str:
     """Rename the identifier at ``(line, col)`` to ``new_name``.
 
-    Returns a mapping ``{file_path: new_source}`` for **all** files changed
-    by the refactoring.  For single-file usage the only key is typically
-    ``""`` (the empty string).
+    Finds the assignment at the given position and renames all definitions
+    of the same name in its scope plus all of their references.
 
-    Raises ``jedi.api.exceptions.RefactoringError`` if there is no
-    identifier under the cursor.
+    Returns the modified source, or the original if no assignment was
+    found at ``(line, col)``.
     """
-    try:
-        kwargs: dict = {"code": source}
-        if path is not None:
-            kwargs["path"] = path
-        script = jedi.Script(**kwargs)  # type: ignore[arg-type]
-        refactoring = script.rename(line=line, column=col, new_name=new_name)
-        result: dict[str, str] = {}
-        if refactoring is not None:
-            for file_path, change in refactoring.get_changed_files().items():
-                result[file_path] = change.get_new_code()
-        return result
-    except Exception:
-        # Jedi may fail due to internal errors or edge cases.
-        # Return empty result to indicate failure.
-        return {}
+    module = cst.parse_module(source)
+    wrapper = MetadataWrapper(module)
+    scopes_map = wrapper.resolve(ScopeProvider)
+    positions = wrapper.resolve(PositionProvider)
+
+    # Find the assignment at (line, col).
+    target_assignment = None
+    target_name = ""
+    seen_scopes: Set[int] = set()
+    for scope in scopes_map.values():
+        if scope is None or id(scope) in seen_scopes:
+            continue
+        seen_scopes.add(id(scope))
+        for assignment in scope.assignments:
+            if is_protected_name(assignment.name) or _is_import_or_builtin(assignment):
+                continue
+            name_node = _get_name_node(assignment.node)
+            cr = positions.get(name_node)
+            if cr is not None and cr.start.line == line and cr.start.column == col:
+                target_assignment = assignment
+                target_name = assignment.name
+                break
+        if target_assignment:
+            break
+
+    if target_assignment is None:
+        return source
+
+    # Find all assignments of the same name in the same scope.
+    nodes_to_rename: Set[cst.CSTNode] = set()
+    seen: Set[int] = set()
+    for scope in scopes_map.values():
+        if scope is None or id(scope) in seen:
+            continue
+        seen.add(id(scope))
+        scope_list = list(scope.assignments)
+        if target_assignment not in scope_list:
+            continue
+        for assignment in scope_list:
+            if assignment.name != target_name:
+                continue
+            nodes_to_rename.add(_get_name_node(assignment.node))
+            for access in assignment.references:
+                if isinstance(access.node, cst.Name):
+                    nodes_to_rename.add(access.node)
+        break  # only one scope.
+
+    if not nodes_to_rename:
+        return source
+
+    transformer = _MultiRenameTransformer({target_name: new_name}, nodes_to_rename)
+    return wrapper.module.visit(transformer).code

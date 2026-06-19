@@ -22,7 +22,7 @@ This module provides:
 Design notes
 ------------
 * We use Python's built-in ``tokenize`` module so that the token boundaries
-  exactly match what Jedi uses for rename operations.
+  exactly match what the rename infrastructure uses.
 * Whitespace, ``NEWLINE``, ``NL``, ``INDENT``, ``DEDENT``, ``ENCODING``,
   ``ENDMARKER`` tokens are dropped — they carry no identifier information.
 * ``COMMENT`` tokens are kept as single opaque tokens (the model can learn
@@ -189,7 +189,7 @@ def apply_replace_tags(
 
     This is a *character-level reconstruction* used during iterative
     inference.  It is intentionally simple: tokens are joined with a
-    single space.  The harness then uses Jedi rename to apply the actual
+    single space.  The harness then uses libcst rename to apply the actual
     scope-aware refactoring.
 
     Parameters

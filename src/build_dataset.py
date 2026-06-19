@@ -83,21 +83,10 @@ def _emit(snippet: str, rng: random.Random, args: argparse.Namespace) -> Iterabl
 
 
 def _worker(payload: tuple) -> tuple[str, List[dict]]:
-    """Process a single snippet — runs in a child process.
-
-    The per-process Jedi cache isolation is handled at module-import time by
-    :mod:`identifier_utils` (which is imported transitively via
+    """Process a single snippet — runs in a child process."""
     :mod:`typo_injector`).  No extra setup is needed here.
     """
     snippet, seed, args_dict = payload
-    # Suppress SyntaxWarning from parso about invalid escape sequences in
-    # real-world code (e.g., "\i" in non-raw strings).
-    import warnings
-    warnings.filterwarnings("ignore", category=SyntaxWarning)
-
-    # Disable Jedi/parso disk cache to avoid multi-process cache corruption.
-    import jedi.settings
-    jedi.settings.cache_directory = None
 
     rng = random.Random(seed)
     args = argparse.Namespace(**args_dict)
