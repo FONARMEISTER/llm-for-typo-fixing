@@ -20,7 +20,8 @@ import unittest
 from typing import Any, Dict, List
 
 import torch
-from transformers import AutoTokenizer
+
+from tests.tokenizer_cache import get_codebert_tokenizer
 
 from src.gector.dataset import GECToRDataset, LABEL_IGNORE
 from src.gector.vocab import (
@@ -76,9 +77,7 @@ class GECToRDatasetTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            "microsoft/codebert-base", use_fast=True
-        )
+        cls.tokenizer = get_codebert_tokenizer()
 
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.mock_file = os.path.join(cls.temp_dir.name, "mock_gector.jsonl")
@@ -287,9 +286,7 @@ class GECToRDatasetReplaceVocabTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            "microsoft/codebert-base", use_fast=True
-        )
+        cls.tokenizer = get_codebert_tokenizer()
 
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.mock_file = os.path.join(cls.temp_dir.name, "mock_gector.jsonl")

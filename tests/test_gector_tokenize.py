@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import unittest
 
-from transformers import AutoTokenizer
+from tests.tokenizer_cache import get_codebert_tokenizer
 
 from src.gector.tokenize_code import (
     code_tokens_from_source,
@@ -74,9 +74,7 @@ class AlignToSubwordsTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            "microsoft/codebert-base", use_fast=True
-        )
+        cls.tokenizer = get_codebert_tokenizer()
 
     def test_produces_input_ids_and_word_ids(self) -> None:
         code_tokens = code_tokens_from_source("def foo(x):\n    return x + 1")

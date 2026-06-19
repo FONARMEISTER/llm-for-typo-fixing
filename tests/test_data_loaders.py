@@ -16,6 +16,8 @@ from typing import Any, Dict, List
 import torch
 from transformers import AutoTokenizer
 
+from tests.tokenizer_cache import get_codebert_tokenizer
+
 from src.typo_datasets import (
     CausalLMTypoDataset,
     MaskedLMTypoDataset,
@@ -188,7 +190,7 @@ class MaskedLMTypoDatasetTests(unittest.TestCase):
         Initializes the CodeBERT tokenizer, creates a temporary file,
         and loads the dataset.
         """
-        cls.tokenizer = AutoTokenizer.from_pretrained("microsoft/codebert-base")
+        cls.tokenizer = get_codebert_tokenizer()
         
         cls.temp_dir = tempfile.TemporaryDirectory()
         cls.mock_file = os.path.join(cls.temp_dir.name, "mock_masked.jsonl")

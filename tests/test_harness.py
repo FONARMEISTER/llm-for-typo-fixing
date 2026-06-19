@@ -13,6 +13,7 @@ from Levenshtein import distance as _lev_distance
 
 from src.harness import (
     SampleResult,
+    _iter_jsonl,
     _normalized_edit_distance,
     _per_sample_identifier_counts,
     compute_metrics,
@@ -79,6 +80,30 @@ class EditDistanceTests(unittest.TestCase):
 
     def test_normalized_zero(self):
         self.assertEqual(_normalized_edit_distance("", ""), 0.0)
+
+
+class IterJsonlTests(unittest.TestCase):
+    """Unit tests for ``_iter_jsonl``."""
+
+    def test_skips_empty_lines(self) -> None:
+        """Blank lines in JSONL are skipped."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "test.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write('{"a": 1}\n\n{"b": 2}\n')
+            items = list(_iter_jsonl(path))
+            self.assertEqual(len(items), 2)
+            self.assertEqual(items[0], {"a": 1})
+            self.assertEqual(items[1], {"b": 2})
+
+    def test_file_with_only_empty_lines(self) -> None:
+        """File with only blank lines yields zero items."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "empty.jsonl")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n\n\n")
+            items = list(_iter_jsonl(path))
+            self.assertEqual(len(items), 0)
 
 
 class IdentifierCountsTests(unittest.TestCase):

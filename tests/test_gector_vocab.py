@@ -425,5 +425,102 @@ class TagVocabMinimalTests(unittest.TestCase):
         self.assertEqual(idx, UNK_IDX)  # no REPLACE tags in minimal vocab.
 
 
+class CharEditTagEdgeCases(unittest.TestCase):
+    """Edge cases for ``compute_char_edit_tag`` with non-EDIT_ALPHABET chars."""
+
+    def test_substitute_non_alpha_char_in_original_returns_none(self) -> None:
+        """Substitution: original char not in EDIT_ALPHABET → return None."""
+        # original has "-" which is not in EDIT_ALPHABET.
+        result = compute_char_edit_tag("abXd", "ab-d")
+        self.assertIsNone(result)
+
+    def test_delete_extra_char_at_end(self) -> None:
+        """Delete: corrupted has one extra char, can be deleted to match original."""
+        result = compute_char_edit_tag("numberr", "number")
+        self.assertEqual(result, "$DEL_5")
+
+    def test_insert_non_alpha_char_in_original_returns_none(self) -> None:
+        """Insert: original char not in EDIT_ALPHABET → return None."""
+        # Corrupted "abd" is missing "-" from "ab-d".
+        result = compute_char_edit_tag("abd", "ab-d")
+        self.assertIsNone(result)
+
+    def test_more_than_two_diffs_returns_none(self) -> None:
+        """More than 2 differing positions → not a single edit → None."""
+        result = compute_char_edit_tag("abc", "xyz")
+        self.assertIsNone(result)
+
+    def test_length_difference_too_large_returns_none(self) -> None:
+        """Length difference > 1 → not a single edit → None."""
+        result = compute_char_edit_tag("ab", "abcd")
+        self.assertIsNone(result)
+
+
+class CharEditVocabInstanceTests(unittest.TestCase):
+    """Tests for ``TagVocab`` instance methods beyond build/save/load."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.vocab = TagVocab.build_char_edit()
+
+    def test_len(self) -> None:
+        """`len(vocab)` returns the vocabulary size."""
+        self.assertEqual(len(self.vocab), self.vocab.size)
+        self.assertGreater(len(self.vocab), 4)  # more than special tags
+
+    def test_contains_keep_tag(self) -> None:
+        """`KEEP_TAG in vocab` → True."""
+        self.assertIn(KEEP_TAG, self.vocab)
+
+    def test_contains_unknown_tag(self) -> None:
+        """Arbitrary string not in vocab."""
+        self.assertNotIn("$NO_SUCH_TAG_999", self.vocab)
+
+    def test_tag2idx_unknown_returns_unk_idx(self) -> None:
+        """Unknown tag → UNK_IDX."""
+        self.assertEqual(self.vocab.tag2idx("nonexistent_tag"), UNK_IDX)
+
+    def test_idx2tag_out_of_range_returns_unk(self) -> None:
+        """Index out of range → UNK_TAG."""
+        self.assertEqual(self.vocab.idx2tag(-1), UNK_TAG)
+        self.assertEqual(self.vocab.idx2tag(len(self.vocab) + 100), UNK_TAG)
+
+    def test_is_char_edit_vocab(self) -> None:
+        """`build_char_edit()` produces a char-edit vocab."""
+        self.assertTrue(self.vocab.is_char_edit)
+
+
+class ReplaceVocabJsonlTests(unittest.TestCase):
+    """Tests for ``TagVocab.build_from_jsonl`` with various data."""
+
+    def _write_jsonl(self, path: Path, samples: list[dict]) -> None:
+        with path.open("w", encoding="utf-8") as f:
+            for sample in samples:
+                f.write(json.dumps(sample) + "\n")
+
+    def test_has_errors_false_skips_sample(self) -> None:
+        """Samples with has_errors=False are skipped during vocab build."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.jsonl"
+            self._write_jsonl(path, [
+                {"has_errors": False, "edits": []},
+                {"has_errors": True, "edits": [
+                    {"original_name": "compute", "corrupted_name": "copmute"},
+                ]},
+            ])
+            vocab = TagVocab.build_from_jsonl([str(path)], min_freq=1)
+            self.assertIn("$REPLACE_compute", vocab)
+
+    def test_empty_edits_no_replace_tags(self) -> None:
+        """Sample with has_errors=True but empty edits → no REPLACE tags."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.jsonl"
+            self._write_jsonl(path, [
+                {"has_errors": True, "edits": []},
+            ])
+            vocab = TagVocab.build_from_jsonl([str(path)], min_freq=1)
+            self.assertEqual(vocab.size, len(_SPECIAL_TAGS))
+
+
 if __name__ == "__main__":
     unittest.main()

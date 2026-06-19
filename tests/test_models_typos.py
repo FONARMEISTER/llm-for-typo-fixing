@@ -63,3 +63,12 @@ def test_typos_fixes_with_correct_context():
     names = list(extract_renameable_identifiers(code).keys())
     fixes = fixer.fix_names(code, names)
     assert fixes == {"intialize_engine": "initialize_engine"}
+
+
+def test_typos_fixes_method_name():
+    """typos detects and fixes typos in method definitions."""
+    fixer = TyposFixer()
+    code = "def lenght(self):\n    return 42\n"
+    names = list(extract_renameable_identifiers(code).keys())
+    fixes = fixer.fix_names(code, names)
+    assert fixes == {"lenght": "length"}

@@ -27,8 +27,9 @@ from src.gector.tokenize_code import (
     first_subword_mask,
 )
 
+from tests.tokenizer_cache import get_codebert_tokenizer
+
 try:
-    from transformers import AutoTokenizer
     HAVE_TOKENIZER = True
 except ImportError:
     HAVE_TOKENIZER = False
@@ -76,9 +77,7 @@ class GECToRModelTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.vocab = TagVocab.build_char_edit()
-        cls.tokenizer = AutoTokenizer.from_pretrained(
-            "microsoft/codebert-base", use_fast=True
-        )
+        cls.tokenizer = get_codebert_tokenizer()
         # Use a tiny encoder for speed.
         cls.model = GECToRModel.from_encoder(
             "microsoft/codebert-base", cls.vocab,

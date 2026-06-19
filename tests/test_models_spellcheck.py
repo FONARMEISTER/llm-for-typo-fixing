@@ -39,3 +39,25 @@ def test_spellcheck_handles_empty():
     fixer = SpellCheckerFixer()
     fixes = fixer.fix_names("", [])
     assert fixes == {}
+
+
+def test_spellcheck_handles_empty_name_string():
+    """Empty identifier string is returned as-is (no words to spellcheck)."""
+    fixer = SpellCheckerFixer()
+    fixes = fixer.fix_names("", [""])
+    assert fixes == {}
+
+
+def test_spellcheck_skips_non_alpha_word():
+    """Words containing non-alpha chars (underscores, digits) are left untouched."""
+    fixer = SpellCheckerFixer()
+    fixes = fixer.fix_names("", ["_leading", "file2", "my_var"])
+    # All words contain non-alpha chars → no corrections.
+    assert fixes == {}
+
+
+def test_spellcheck_unknown_word_no_suggestion():
+    """Word with no known suggestion → returned as-is (no fix)."""
+    fixer = SpellCheckerFixer()
+    fixes = fixer.fix_names("", ["zzzzzzzzzz"])
+    assert fixes == {}
