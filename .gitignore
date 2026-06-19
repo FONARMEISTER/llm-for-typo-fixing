@@ -10,3 +10,5 @@ data/
 models/
 Makefile.pip
 requirements.txt
+*.7z
+MODEL.md
