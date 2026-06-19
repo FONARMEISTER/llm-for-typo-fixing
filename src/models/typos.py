@@ -13,7 +13,7 @@ import subprocess
 from typing import Dict, List, Tuple
 
 from .base import NameFixer
-from ..identifier_utils import extract_renameable_identifiers
+from ..identifier_utils import extract_renameable_identifiers, UnparseableCodeError
 
 
 class TyposFixer(NameFixer):
@@ -52,14 +52,20 @@ class TyposFixer(NameFixer):
             return {}
 
         # Build a position → corrected-name lookup from the corrected code.
-        corr_idents = extract_renameable_identifiers(corrected)
+        try:
+            corr_idents = extract_renameable_identifiers(corrected)
+        except UnparseableCodeError:
+            return {}
         pos_to_name: Dict[Tuple[int, int], str] = {}
         for cname, positions in corr_idents.items():
             for pos in positions:
                 pos_to_name[pos] = cname
 
         # Extract identifiers from the original code to get their positions.
-        orig_idents = extract_renameable_identifiers(code)
+        try:
+            orig_idents = extract_renameable_identifiers(code)
+        except UnparseableCodeError:
+            return {}
 
         result: Dict[str, str] = {}
         for name in names:
