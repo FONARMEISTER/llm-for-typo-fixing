@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer ruff ruff-fix lint clean train-gector train-gector-all
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer ruff ruff-fix lint coverage coverage-json coverage-html clean train-gector train-gector-all
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -174,6 +174,32 @@ ruff-fix:
 lint: ruff
 	uv run python -m py_compile src/*.py
 
+# Test coverage — terminal report with missing lines (human-readable).
+coverage:
+	uv run python -m pytest tests/ \
+		--cov=src \
+		--cov-report=term-missing \
+		--cov-report=json:coverage.json \
+		-q
+	uv run python -c 'import json; r=json.load(open("coverage.json")); print(f"\nTotal: {r["totals"]["percent_covered"]:.1f}% ({r["totals"]["covered_lines"]}/{r["totals"]["num_statements"]} lines)")'
+
+# Test coverage — JSON report only (machine-readable for AI consumption).
+coverage-json:
+	uv run python -m pytest tests/ \
+		--cov=src \
+		--cov-report=json:coverage.json \
+		-q
+	uv run python -c 'import json; r=json.load(open("coverage.json")); print(json.dumps(r, indent=2))'
+
+# Test coverage — interactive HTML report (opens browser).
+coverage-html:
+	uv run python -m pytest tests/ \
+		--cov=src \
+		--cov-report=html:htmlcov \
+		-q
+	@echo "Opening htmlcov/index.html ..."
+	xdg-open htmlcov/index.html 2>/dev/null || open htmlcov/index.html 2>/dev/null || true
+
 # Remove generated data files.
 clean:
 	rm -rf data/*.jsonl
@@ -181,6 +207,7 @@ clean:
 	rm -rf data/magicoder/
 	rm -rf data/codealpaca/
 	rm -rf data/github_python/
+	rm -rf htmlcov/ coverage.json .coverage
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -name '*.pyc' -delete
 

@@ -28,4 +28,5 @@ ml = [
 [dependency-groups]
 dev = [
     "pytest>=9.1.0",
+    "pytest-cov>=6.0.0",
 ]

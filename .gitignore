@@ -12,3 +12,6 @@ Makefile.pip
 requirements.txt
 *.7z
 MODEL.md
+htmlcov/
+coverage.json
+.coverage
