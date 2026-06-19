@@ -128,7 +128,7 @@ def plot_per_dataset(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
         rec_vals = [models_dict[m]["identifier_recall"] for m in ordered]
         f1_vals = [models_dict[m]["identifier_f1"] for m in ordered]
 
-        fig, axes = plt.subplots(1, 4, figsize=(18, 5))
+        fig, axes = plt.subplots(1, 4, figsize=(max(18, len(ordered) * 3), 5))
         fig.suptitle(f"Dataset: {ds_key}", fontsize=13, fontweight="bold")
 
         _bar_chart(axes[0], ordered, em_vals, "Exact Match")
@@ -149,7 +149,11 @@ def plot_per_dataset(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
 
 
 def plot_time(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
-    """Produce a grouped bar chart of ms/kB per model per dataset."""
+    """Produce a grouped bar chart of ms/kB per model per dataset.
+
+    Models are on the x-axis (like :func:`_bar_chart`), datasets are
+    the grouped bar colours.
+    """
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     datasets = sorted(results.keys())
@@ -158,30 +162,29 @@ def plot_time(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
         all_models.update(results[ds].keys())
     ordered = model_order(list(all_models))
 
-    x = np.arange(len(datasets))
-    width = 0.8 / len(ordered)
+    x = np.arange(len(ordered))
+    width = 0.8 / len(datasets)
 
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(figsize=(max(12, len(ordered) * 1.5), 5))
     ax.set_title("Throughput — ms per kB of code (lower is better)", fontweight="bold")
     ax.set_ylabel("ms / kB")
-    ax.set_xticks(x + width * (len(ordered) - 1) / 2)
-    ax.set_xticklabels(datasets, fontsize=10)
+    ax.set_xticks(x + width * (len(datasets) - 1) / 2)
+    ax.set_xticklabels(ordered, rotation=15, ha="right", fontsize=8)
 
-    for i, model in enumerate(ordered):
+    for i, ds in enumerate(datasets):
         vals = [
-            results[ds].get(model, {}).get("avg_time_per_kb_seconds", 0) * 1000
-            for ds in datasets
+            results[ds].get(m, {}).get("avg_time_per_kb_seconds", 0) * 1000
+            for m in ordered
         ]
         offset = x + i * width
-        bars = ax.bar(offset, vals, width, label=model,
+        bars = ax.bar(offset, vals, width, label=ds,
                       color=COLOURS[i % len(COLOURS)], edgecolor="white")
         for bar, val in zip(bars, vals):
             if val > 0:
                 ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
                         f"{val:.0f}", ha="center", va="bottom", fontsize=6)
 
-    ax.legend(fontsize=8, ncol=2)
-    fig.tight_layout()
+    ax.legend(fontsize=8, ncol=2, loc="lower left")
     out_path = PLOTS_DIR / "time.png"
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -247,8 +250,6 @@ def plot_heatmap(results: Dict[str, Dict[str, Dict[str, Any]]]) -> None:
 
         cbar = fig.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label(title)
-
-        fig.tight_layout()
         safe_name = metric_key.split("_")[0] if "f1" in metric_key else "time_heatmap"
         out_path = PLOTS_DIR / f"heatmap_{safe_name}.png"
         fig.savefig(out_path, dpi=150)
