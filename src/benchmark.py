@@ -37,6 +37,7 @@ from src.models import make_model  # noqa: E402
 DATASET_PATHS = {
     "demo": str(_project_root / "data" / "demo.jsonl"),
     "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
+    "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
 }
 
 # ------------------------------------------------------------------ #

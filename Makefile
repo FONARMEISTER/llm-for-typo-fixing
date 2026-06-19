@@ -1,4 +1,4 @@
-.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer ruff ruff-fix lint coverage coverage-json coverage-html clean train-gector train-gector-all
+.PHONY: test test-verbose test-match build-demo build-mbpp build-magicoder build-codealpaca build-github-python build-quicktest build-all eval eval-demo eval-mbpp eval-magicoder eval-codealpaca eval-all eval-quick eval-save eval-serial viewer ruff ruff-fix lint coverage coverage-json coverage-html clean train-gector train-gector-all
 
 # Number of parallel workers for dataset building (auto-detected).
 WORKERS := $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
@@ -80,7 +80,19 @@ build-github-python:
 		--p-edit 0.8 \
 		--seed 42
 
-# Build all datasets (demo, mbpp, magicoder, codealpaca).
+# Small CodeAlpaca-based dataset for quick model smoketests (500 samples, seed 123).
+build-quicktest:
+	uv run python -m src.build_dataset \
+		--source codealpaca \
+		--out data/quicktest.jsonl \
+		--variants-per-snippet 1 \
+		--max-edits 2 \
+		--p-edit 0.8 \
+		--seed 123
+	@head -500 data/quicktest.jsonl > data/quicktest.jsonl.tmp
+	@mv data/quicktest.jsonl.tmp data/quicktest.jsonl
+
+# Build all datasets (demo, mbpp, magicoder, codealpaca, github_python).
 build-all: build-demo build-mbpp build-magicoder build-codealpaca build-github-python
 
 # Run evaluation with the spellchecker baseline (parallel by default).
