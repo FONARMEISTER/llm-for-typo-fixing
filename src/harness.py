@@ -255,7 +255,7 @@ def evaluate(
     max_parallel = getattr(model, "max_parallel_requests", 1)
 
     if max_parallel > 1:
-        # Thread-pool path — concurrent HTTP calls, Jedi ops serialised by GIL.
+        # Thread-pool path — concurrent HTTP calls, rename ops serialised by GIL.
         results = _evaluate_threaded(error_samples, model, max_parallel)
     elif n_workers <= 1:
         # Serial path — no pickling overhead, simpler debugging.

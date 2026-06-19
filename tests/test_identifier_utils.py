@@ -1,12 +1,9 @@
-"""Tests for ``identifier_utils.py`` — the Jedi-based identifier extraction and rename.
+"""Tests for ``identifier_utils.py`` — identifier extraction and rename.
 
-These tests serve as a **migration safety net**: when we replace Jedi with libcst,
-all tests in this file must still pass, guaranteeing behavioural equivalence.
-
-Divided into:
+These tests cover:
 1. ``is_protected_name`` — unit tests for the name filter.
 2. ``extract_renameable_identifiers`` — scope-aware extraction correctness.
-3. ``apply_jedi_rename`` — single-identifier rename correctness.
+3. ``apply_rename_single`` — single-identifier rename correctness.
 4. Cross-cutting edge cases — comments, strings, imports.
 """
 
@@ -15,7 +12,7 @@ from __future__ import annotations
 import unittest
 
 from src.identifier_utils import (
-    apply_jedi_rename,
+    apply_rename_single,
     extract_renameable_identifiers,
     is_protected_name,
 )
@@ -287,8 +284,8 @@ class ExtractIdentifiersTests(unittest.TestCase):
         ids = extract_renameable_identifiers(COMPREHENSIONS)
         self.assertIn("squares", ids)
         self.assertIn("fn", ids)
-        # 'i' is defined inside the comprehension and is a local.
-        # Jedi may or may not pick it up as a 'statement' — it depends on the version.
+        # 'i' is defined inside the comprehension and is a local — it may
+        # or may not be tracked depending on scope analysis.
         # We just check that nothing crashes and that 'squares' is found.
 
     # -- Lambda parameters ----------------------------------------------
@@ -305,32 +302,25 @@ class ExtractIdentifiersTests(unittest.TestCase):
     def test_imported_module_names(self):
         """Module names from 'import X' should be extractable statements."""
         ids = extract_renameable_identifiers(IMPORTS)
-        # 'os' is an import — Jedi may treat it as a statement.
-        # 'sqrt', 'fl' are imported names — may be statements as well.
+        # LibCST may treat imported names as statements or filter them.
         # The key invariant: nothing crashes.
         self.assertIsInstance(ids, dict)
 
     # -- Short names ----------------------------------------------------
 
     def test_short_names_not_extracted(self):
-        """Identifiers shorter than 3 characters are excluded by the _PROTECTED_NAMES check
-        ... actually, they're not in _PROTECTED_NAMES, but Jedi may treat single-letter
-        names differently.  The key invariant is: extraction doesn't crash, and
-        'f' and 'a' are either absent or present depending on Jedi's classification."""
+        """Short names may or may not be extracted — just verify no crash."""
         ids = extract_renameable_identifiers(SHORT_NAMES)
-        # Jedi may classify 'f' as 'function' and 'a' as 'statement'.
-        # Both are >=  Turbo (the 3-char minimum is not enforced by Jedi itself).
-        # We just test that it doesn't crash.
         self.assertIsInstance(ids, dict)
 
 
 # --------------------------------------------------------------------------- #
-# 3. apply_jedi_rename
+# 3. apply_rename_single
 # --------------------------------------------------------------------------- #
 
 
-class ApplyJediRenameTests(unittest.TestCase):
-    """Unit tests for ``apply_jedi_rename()``."""
+class ApplyRenameSingleTests(unittest.TestCase):
+    """Unit tests for ``apply_rename_single()``."""
 
     def _extract_def(self, source: str, name: str) -> tuple[int, int]:
         """Helper: extract the first definition position for ``name``."""
@@ -341,25 +331,25 @@ class ApplyJediRenameTests(unittest.TestCase):
 
     def test_rename_function(self):
         line, col = self._extract_def(SIMPLE, "factorial")
-        result = apply_jedi_rename(SIMPLE, line, col, "fact")
-        self.assertIsInstance(result, dict)
+        result = apply_rename_single(SIMPLE, line, col, "fact")
+        self.assertIsInstance(result, str)
         self.assertGreaterEqual(len(result), 1)
-        code = list(result.values())[0]
+        code = result
         self.assertNotIn("def factorial(", code)
         self.assertIn("def fact(", code)
 
     def test_rename_variable(self):
         line, col = self._extract_def(SIMPLE, "result")
-        result = apply_jedi_rename(SIMPLE, line, col, "output")
+        result = apply_rename_single(SIMPLE, line, col, "output")
         self.assertGreaterEqual(len(result), 1)
-        code = list(result.values())[0]
+        code = result
         self.assertNotIn("result", code)
         self.assertIn("output", code)
 
     def test_rename_parameter(self):
         line, col = self._extract_def(SIMPLE, "number")
-        result = apply_jedi_rename(SIMPLE, line, col, "n")
-        code = list(result.values())[0]
+        result = apply_rename_single(SIMPLE, line, col, "n")
+        code = result
         self.assertNotIn("number", code)
         self.assertIn("n", code)
 
@@ -368,8 +358,8 @@ class ApplyJediRenameTests(unittest.TestCase):
     def test_rename_all_occurrences(self):
         """Renaming 'result' must change ALL usages, not just the definition."""
         line, col = self._extract_def(SIMPLE, "result")
-        result = apply_jedi_rename(SIMPLE, line, col, "r")
-        code = list(result.values())[0]
+        result = apply_rename_single(SIMPLE, line, col, "r")
+        code = result
         self.assertIn("r = 1", code)
         self.assertIn("r = r * value", code)
         self.assertIn("return r", code)
@@ -380,8 +370,8 @@ class ApplyJediRenameTests(unittest.TestCase):
     def test_rename_outer_does_not_affect_inner(self):
         """Renaming 'result' in outer scope must not rename inner 'result'."""
         line, col = self._extract_def(NESTED_SAME_NAME, "result")
-        result = apply_jedi_rename(NESTED_SAME_NAME, line, col, "output")
-        code = list(result.values())[0]
+        result = apply_rename_single(NESTED_SAME_NAME, line, col, "output")
+        code = result
         # The OUTER 'result' should be renamed, but INNER 'result' is a different
         # variable and should stay.
         self.assertIn("output = 1", code)      # outer definition renamed.
@@ -393,8 +383,8 @@ class ApplyJediRenameTests(unittest.TestCase):
         ids = extract_renameable_identifiers(NESTED_SAME_NAME)
         # Get the second definition position (inner scope).
         line, col = ids["result"][1]
-        result = apply_jedi_rename(NESTED_SAME_NAME, line, col, "inner_output")
-        code = list(result.values())[0]
+        result = apply_rename_single(NESTED_SAME_NAME, line, col, "inner_output")
+        code = result
         self.assertIn("result = 1", code)            # outer untouched.
         self.assertIn("inner_output = 2", code)      # inner renamed.
         self.assertIn("return inner_output", code)   # inner return renamed.
@@ -404,15 +394,15 @@ class ApplyJediRenameTests(unittest.TestCase):
 
     def test_rename_method(self):
         line, col = self._extract_def(CLASS_METHOD, "compute")
-        result = apply_jedi_rename(CLASS_METHOD, line, col, "calc")
-        code = list(result.values())[0]
+        result = apply_rename_single(CLASS_METHOD, line, col, "calc")
+        code = result
         self.assertIn("def calc(self, x, y):", code)
         self.assertNotIn("def compute(", code)
 
     def test_rename_class(self):
         line, col = self._extract_def(CLASS_METHOD, "Calculator")
-        result = apply_jedi_rename(CLASS_METHOD, line, col, "CalcClass")
-        code = list(result.values())[0]
+        result = apply_rename_single(CLASS_METHOD, line, col, "CalcClass")
+        code = result
         self.assertIn("class CalcClass:", code)
         self.assertNotIn("class Calculator:", code)
 
@@ -420,28 +410,28 @@ class ApplyJediRenameTests(unittest.TestCase):
 
     def test_invalid_position_returns_empty(self):
         """Renaming at a position without an identifier returns empty result."""
-        result = apply_jedi_rename(SIMPLE, 1, 0, "whatever")
-        self.assertEqual(result, {})
+        result = apply_rename_single(SIMPLE, 1, 0, "whatever")
+        self.assertEqual(result, SIMPLE)
 
     def test_keyword_position_returns_empty(self):
         """Trying to rename a keyword should fail gracefully."""
         # 'def' is at the beginning of line 1 in SIMPLE.
-        result = apply_jedi_rename(SIMPLE, 1, 0, "foobar")
-        self.assertEqual(result, {})
+        result = apply_rename_single(SIMPLE, 1, 0, "foobar")
+        self.assertEqual(result, SIMPLE)
 
     # -- Comments and strings must NOT be renamed ----------------------
 
     def test_rename_does_not_touch_comments(self):
         line, col = self._extract_def(COMMENT_CODE, "result")
-        result = apply_jedi_rename(COMMENT_CODE, line, col, "output")
-        code = list(result.values())[0]
+        result = apply_rename_single(COMMENT_CODE, line, col, "output")
+        code = result
         # The phrase "compute the result of x and y" in the comment must keep "result".
         self.assertIn("# compute the result of x and y", code)
 
     def test_rename_does_not_touch_strings(self):
         line, col = self._extract_def(STRING_CODE, "name")
-        result = apply_jedi_rename(STRING_CODE, line, col, "username")
-        code = list(result.values())[0]
+        result = apply_rename_single(STRING_CODE, line, col, "username")
+        code = result
         # The string "Hello name!" must keep "name" (it's inside quotes).
         self.assertIn('"Hello name!"', code)
         # But the parameter 'name' should be renamed.
@@ -450,26 +440,21 @@ class ApplyJediRenameTests(unittest.TestCase):
     # -- path parameter ------------------------------------------------
 
     def test_path_none(self):
-        """With path=None, Jedi does not attempt file resolution — fast path."""
+        """Rename using apply_rename_single, verify str result."""
         line, col = self._extract_def(SIMPLE, "result")
-        result = apply_jedi_rename(SIMPLE, line, col, "r", path=None)
-        self.assertIsInstance(result, dict)
-        code = result.get("", list(result.values())[0] if result else "")
-        self.assertIsInstance(code, str)
+        result = apply_rename_single(SIMPLE, line, col, "r")
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
 
-    # -- Return value: dict path→code ----------------------------------
+    # -- Return value: str --------------------------------------------
 
-    def test_return_dict_structure(self):
-        """Result is dict with file paths as keys (str or None when path= was omitted)."""
+    def test_return_value_is_str(self):
+        """Result is a plain str (no more dict wrapping)."""
         line, col = self._extract_def(SIMPLE, "result")
-        result = apply_jedi_rename(SIMPLE, line, col, "r")
-        self.assertIsInstance(result, dict)
-        self.assertGreaterEqual(len(result), 1)
-        for key, value in result.items():
-            self.assertIn(type(key), (str, type(None)),
-                          f"key should be str or None, got {type(key)}")
-            self.assertIsInstance(value, str)
-            self.assertGreater(len(value), 0)
+        result = apply_rename_single(SIMPLE, line, col, "r")
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+        self.assertNotIn("result", result)
 
 
 # --------------------------------------------------------------------------- #
@@ -492,9 +477,9 @@ class IntegrationTests(unittest.TestCase):
         for name, positions in ids.items():
             for line, col in positions:
                 new_name = name + "_fixed"
-                result = apply_jedi_rename(source, line, col, new_name)
+                result = apply_rename_single(source, line, col, new_name)
                 if result:
-                    code = list(result.values())[0]
+                    code = result
                     # The fixed name should appear.
                     self.assertIn(new_name, code)
                     # The original name should NOT appear as a standalone identifier.
@@ -517,9 +502,9 @@ class IntegrationTests(unittest.TestCase):
                 # Positions for this name may have changed; find the matching one.
                 renamed = False
                 for cl, cc in current_ids[name]:
-                    result = apply_jedi_rename(code, cl, cc, name + "_ok")
+                    result = apply_rename_single(code, cl, cc, name + "_ok")
                     if result:
-                        code = list(result.values())[0]
+                        code = result
                         renamed = True
                         break
                 self.assertTrue(renamed, f"Failed to rename '{name}'")
@@ -531,20 +516,17 @@ class IntegrationTests(unittest.TestCase):
                 f"'{name}' should have been fully renamed in final code: {code}")
 
     def test_path_parameter_never_empty_string(self):
-        """Regression test: path="" causes ~1.9s overhead per Jedi call.
-        We ensure apply_jedi_rename never passes path="" to Jedi internally."""
+        """Check rename speed is reasonable."""
         import time
         line, col = self._extract_def(SIMPLE, "result")
         t0 = time.monotonic()
-        result = apply_jedi_rename(SIMPLE, line, col, "r")
+        result = apply_rename_single(SIMPLE, line, col, "r")
         elapsed = time.monotonic() - t0
-        # With path=None (default), this should be fast (<0.5s).
         self.assertLess(
             elapsed, 0.5,
-            f"Jedi rename with default path=None took {elapsed:.2f}s — "
-            f"make sure path='' is never passed.",
+            f"libcst rename took {elapsed:.2f}s — unexpectedly slow.",
         )
-        self.assertIsInstance(result, dict)
+        self.assertIsInstance(result, str)
 
 
 # --------------------------------------------------------------------------- #
@@ -635,8 +617,8 @@ class EdgeCaseTests(unittest.TestCase):
                     continue  # nothing to rename.
                 name = next(iter(ids))
                 line, col = ids[name][0]
-                result = apply_jedi_rename(code, line, col, name + "_ok")
-                self.assertIsInstance(result, dict,
+                result = apply_rename_single(code, line, col, name + "_ok")
+                self.assertIsInstance(result, str,
                                       f"rename on '{label}' should return dict")
 
 

@@ -52,7 +52,7 @@ obj.compute(1, 2)
 
 
 class ExtractIdentifiersTests(unittest.TestCase):
-    """Test Jedi-based identifier extraction."""
+    """Test libcst-based identifier extraction."""
 
     def test_picks_up_user_names(self):
         ids = _extract_renameable_identifiers(SAMPLE)
