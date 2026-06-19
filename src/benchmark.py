@@ -36,8 +36,8 @@ from src.models import make_model  # noqa: E402
 
 DATASET_PATHS = {
     # "demo": str(_project_root / "data" / "demo.jsonl"),
-    # "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
-    "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
+    "github_python": str(_project_root / "data" / "github_python" / "test.jsonl"),
+    # "quicktest": str(_project_root / "data" / "quicktest.jsonl"),
 }
 
 # ------------------------------------------------------------------ #
@@ -62,26 +62,26 @@ MODELS: List[Dict[str, Any]] = [
         "display": "GECToR (CodeBERT)",
         "kwargs": {"model_dir": GECTOR_MODEL_DIR},
     },
-    {
-        "key": "llm_api",
-        "display": "Llama 3.2 1B",
-        "kwargs": {"preset": "llama-3.2-1b"},
-    },
+    # {
+    #     "key": "llm_api",
+    #     "display": "Llama 3.2 1B",
+    #     "kwargs": {"preset": "llama-3.2-1b"},
+    # },
     {
         "key": "llm_api",
         "display": "Qwen 3.5 0.8B",
         "kwargs": {"preset": "qwen-3.5-0.8b"},
     },
-    {
-        "key": "llm_api",
-        "display": "Gemma 4 E2B",
-        "kwargs": {"preset": "gemma4-e2b"},
-    },
-    {
-        "key": "llm_api",
-        "display": "Qwen 3.5 9B",
-        "kwargs": {"preset": "qwen3.5-9B"},
-    },
+    # {
+    #     "key": "llm_api",
+    #     "display": "Gemma 4 E2B",
+    #     "kwargs": {"preset": "gemma4-e2b"},
+    # },
+    # {
+    #     "key": "llm_api",
+    #     "display": "Qwen 3.5 9B",
+    #     "kwargs": {"preset": "qwen3.5-9B"},
+    # },
     {
         "key": "llm_api",
         "display": "WordStorm",
