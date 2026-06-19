@@ -34,6 +34,9 @@ class LoraSeq2SeqFixer(NameFixer):
     Uses an instruction-following prompt format (matching the training data
     from :class:`CausalLMTypoDataset`) and generates the corrected code.
     Identifier-level fixes are extracted by positional diffing.
+
+    The LoRA adapter is merged into the base model at load time, so
+    inference runs at full FP16/BF16 speed without quantization overhead.
     """
 
     name = "lora_seq2seq"
@@ -42,52 +45,67 @@ class LoraSeq2SeqFixer(NameFixer):
         self,
         checkpoint_dir: str = _DEFAULT_CKPT,
         device: Optional[str] = None,
+        merged_dir: Optional[str] = None,
         **kwargs,
     ) -> None:
-        """Load base model and LoRA adapter from *checkpoint_dir*.
+        """Load base model, merge LoRA adapter, and run at full precision.
 
         Args:
             checkpoint_dir: Directory containing adapter_config.json, adapter_model.safetensors,
                 and tokenizer files.
             device: Torch device string (e.g. ``"cuda"``, ``"cpu"``).
                 Auto-detected if *None*.
-            **kwargs: Forwarded to ``AutoModelForCausalLM.from_pretrained()``
-                and ``.generate()``.
+            merged_dir: If given, load a pre-merged model from this directory
+                instead of merging the LoRA adapter.  Saves ~2 seconds of
+                startup time and avoids the bnb quantize/dequantize round-trip.
+            **kwargs: Forwarded to ``.generate()``.
         """
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        from peft import PeftModel
 
         self._device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self._tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            merged_dir or checkpoint_dir
+        )
         if self._tokenizer.pad_token is None:
             self._tokenizer.pad_token = self._tokenizer.eos_token
         self._generate_kwargs = kwargs
 
-        # Load 4-bit quantized base model then attach LoRA adapter.
-        # We rely on the adapter config stored in checkpoint_dir to specify
-        # the base model name.
-        import json
-        adapter_config_path = f"{checkpoint_dir}/adapter_config.json"
-        with open(adapter_config_path, "r") as f:
-            adapter_config = json.load(f)
-        base_model_name = adapter_config.get("base_model_name_or_path", "Qwen/Qwen2.5-Coder-0.5B")
+        if merged_dir is not None:
+            # Pre-merged model — load directly, no LoRA overhead.
+            self._model = AutoModelForCausalLM.from_pretrained(
+                merged_dir,
+                device_map=self._device,
+                dtype=torch.bfloat16,
+                trust_remote_code=True,
+            )
+        else:
+            # Load base model in full precision (no 4-bit), merge LoRA weights.
+            import json
+            from peft import PeftModel
 
-        from transformers import BitsAndBytesConfig
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-        )
-        base_model = AutoModelForCausalLM.from_pretrained(
-            base_model_name,
-            quantization_config=bnb_config,
-            device_map=self._device,
-            dtype=torch.bfloat16,
-            trust_remote_code=True,
-        )
-        self._model = PeftModel.from_pretrained(base_model, checkpoint_dir)
+            adapter_config_path = f"{checkpoint_dir}/adapter_config.json"
+            with open(adapter_config_path, "r") as f:
+                adapter_config = json.load(f)
+            base_model_name = adapter_config.get(
+                "base_model_name_or_path", "Qwen/Qwen2.5-Coder-0.5B"
+            )
+
+            base_model = AutoModelForCausalLM.from_pretrained(
+                base_model_name,
+                device_map=self._device,
+                dtype=torch.bfloat16,
+                trust_remote_code=True,
+            )
+            peft_model = PeftModel.from_pretrained(base_model, checkpoint_dir)
+            self._model = peft_model.merge_and_unload()
+
+        # Compile for faster autoregressive generation.
+        if self._device.startswith("cuda"):
+            import torch
+            self._model = torch.compile(
+                self._model, mode="reduce-overhead", fullgraph=False
+            )
         self._model.eval()
 
     def fix_names(self, code: str, names: List[str]) -> Dict[str, str]:

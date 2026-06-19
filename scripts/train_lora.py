@@ -212,6 +212,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"\nSaving to {args.output_dir} ...")
     model.save_pretrained(str(args.output_dir))
     tokenizer.save_pretrained(str(args.output_dir))
+
+    # Merge LoRA and save a full-precision checkpoint for fast inference.
+    merged_dir = Path(args.output_dir) / "merged"
+    merged_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Merging LoRA into base model and saving to {merged_dir} ...")
+    merged_model = model.merge_and_unload()
+    merged_model.save_pretrained(str(merged_dir))
+    tokenizer.save_pretrained(str(merged_dir))
     print("Done.")
     return 0
 

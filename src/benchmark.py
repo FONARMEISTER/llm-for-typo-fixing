@@ -85,7 +85,7 @@ MODELS: List[Dict[str, Any]] = [
     {
         "key": "lora_seq2seq",
         "display": "Qwen-Coder LoRA",
-        "kwargs": {},
+        "kwargs": {"merged_dir": "models/lora-qwen-coder/merged"},
     },
     # {
     #     "key": "llm_api",

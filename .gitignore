@@ -26,3 +26,6 @@ coverage.json
 
 # Generated benchmark plots (binary, large).
 benchmarks/plots/
+
+# Trained LoRA model checkpoints (large).
+models/lora-qwen-coder
